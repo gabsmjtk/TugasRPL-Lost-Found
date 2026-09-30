@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+enum ReportType {
+  LOST
+  FOUND
+}
+
+enum ReportStatus {
+  PENDING
+  OPEN
+  MATCHED
+  CLAIMED
+  RETURNED
+  REJECTED
+  ARCHIVED
+}
+
+enum ClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  Id            String    @id @default(uuid())
+  Name          String
+  StudentNumber String?   @unique
+  Email         String    @unique
+  PasswordHash  String
+  Role          Role      @default(STUDENT)
+  IsActive      Boolean   @default(true)
+  CreatedAt     DateTime  @default(now())
+  UpdatedAt     DateTime  @updatedAt
+
+  Reports         Report[]  @relation("Reporter")
+  VerifiedReports Report[]  @relation("Verifier")
+  Claims          Claim[]   @relation("Claimant")
+  DecidedClaims   Claim[]   @relation("Decider")
+  Handovers       Handover[]
+  AuditLogs       AuditLog[]
+}
+
+model Category {
+  Id          String    @id @default(uuid())
+  Name        String    @unique
+  Description String?
+  IsActive    Boolean   @default(true)
+  CreatedAt   DateTime  @default(now())
+  UpdatedAt   DateTime  @updatedAt
+
+  Reports     Report[]
+}
+
+model Report {
+  Id            String       @id @default(uuid())
+  ReporterId    String
+  CategoryId    String
+  Type          ReportType
+  Status        ReportStatus @default(PENDING)
+  Title         String
+  Brand         String?
+  Color         String?
+  Description   String       @db.Text
+  Location      String
+  EventAt       DateTime
+  VerifiedAt    DateTime?
+  VerifiedById  String?
+  ModeratorNote String?      @db.Text
+  CreatedAt     DateTime     @default(now())
+  UpdatedAt     DateTime     @updatedAt
+
+  Reporter      User         @relation("Reporter", fields: [ReporterId], references: [Id])
+  Verifier      User?        @relation("Verifier", fields: [VerifiedById], references: [Id])
+  Category      Category     @relation(fields: [CategoryId], references: [Id])
+  Images        ReportImage[]
+  Claims        Claim[]
+  Handovers     Handover[]
+
+  @@index([Type, Status])
+  @@index([CategoryId])
+}
+
+model ReportImage {
+  Id        String   @id @default(uuid())
+  ReportId  String
+  FileName  String
+  FilePath  String
+  MimeType  String
+  SortOrder Int      @default(0)
+  CreatedAt DateTime @default(now())
+
+  Report    Report   @relation(fields: [ReportId], references: [Id], onDelete: Cascade)
+}
+
+model Claim {
+  Id                   String      @id @default(uuid())
+  ReportId             String
+  ClaimantId           String
+  ProofAnswer          String      @db.Text
+  OwnershipDescription String      @db.Text
+  ContactPhone         String
+  Status               ClaimStatus @default(PENDING)
+  DecisionNote         String?     @db.Text
+  DecidedById          String?
+  DecidedAt            DateTime?
+  CreatedAt            DateTime    @default(now())
+  UpdatedAt            DateTime    @updatedAt
+
+  Report               Report      @relation(fields: [ReportId], references: [Id])
+  Claimant             User        @relation("Claimant", fields: [ClaimantId], references: [Id])
+  Decider              User?       @relation("Decider", fields: [DecidedById], references: [Id])
+  Handovers            Handover[]
+
+  @@unique([ReportId, ClaimantId])
+  @@index([Status])
+}
+
+model Handover {
+  Id               String   @id @default(uuid())
+  ReportId         String
+  ClaimId          String
+  AdminId          String
+  RecipientName    String
+  HandoverLocation String
+  HandedOverAt     DateTime
+  Note             String?  @db.Text
+  CorrectionNote   String?  @db.Text
+  CreatedAt        DateTime @default(now())
+
+  Report           Report   @relation(fields: [ReportId], references: [Id])
+  Claim            Claim    @relation(fields: [ClaimId], references: [Id])
+  Admin            User     @relation(fields: [AdminId], references: [Id])
+}
+
+model AuditLog {
+  Id         String   @id @default(uuid())
+  ActorId    String
+  EntityType String
+  EntityId   String
+  Action     String
+  Details    String?  @db.Text
+  CreatedAt  DateTime @default(now())
+
+  Actor      User     @relation(fields: [ActorId], references: [Id])
+}
