@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import StudentDashboard from './pages/StudentDashboard';
+import AdminDashboard from './pages/AdminDashboard';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, requireAdmin }: { children: React.ReactNode, requireAdmin?: boolean }) => {
@@ -52,7 +53,7 @@ function App() {
             <Route path="/register" element={<Register />} />
             
             <Route path="/dashboard" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
-            <Route path="/admin" element={<ProtectedRoute requireAdmin><div>Admin Dashboard (To be implemented)</div></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
             <Route path="/reports" element={<div>Cari Laporan (To be implemented)</div>} />
             <Route path="/reports/create" element={<ProtectedRoute><div>Buat Laporan (To be implemented)</div></ProtectedRoute>} />
           </Routes>

@@ -27,9 +27,15 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/multer": "^1.4.11",
+    "@types/uuid": "^10.0.0",
+    "install": "^0.13.0",
     "nodemon": "^3.1.0",
     "prisma": "^5.10.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "uuid": "^14.0.2"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   }
 }
