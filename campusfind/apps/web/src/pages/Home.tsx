@@ -1,240 +1,226 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { 
-  Search, 
-  MapPin, 
-  Calendar, 
-  ArrowRight, 
-  ShieldCheck, 
-  HelpCircle, 
-  CheckCircle2, 
-  PackageOpen, 
-  FileText,
-  Sparkles,
-  Info
-} from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
-import { ReportSummary } from '@campusfind/shared';
-import { StatusBadge, TypeBadge } from '../components/StatusBadge';
+import StatusBadge from '../components/StatusBadge';
+import {
+  Search, MapPin, AlertTriangle, CheckCircle2, PackageCheck,
+  Plus, ArrowRight, ChevronRight, Loader2, FileText
+} from 'lucide-react';
 
-export default function Home() {
+interface Stats {
+  OpenLostReports: number;
+  OpenFoundReports: number;
+  CompletedHandovers: number;
+}
+
+interface Report {
+  Id: string;
+  Type: string;
+  Status: string;
+  Title: string;
+  CategoryName: string;
+  Location: string;
+  EventAt: string;
+  CreatedAt: string;
+  ImageUrl?: string;
+  ReporterName: string;
+}
+
+const Home: React.FC = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const [stats, setStats] = useState({ OpenLostCount: 0, OpenFoundCount: 0, ReturnedCount: 0 });
-  const [recentReports, setRecentReports] = useState<ReportSummary[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [recentReports, setRecentReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    const loadHomeData = async () => {
-      try {
-        const [statsRes, reportsRes] = await Promise.all([
-          api.get('/reports/stats').catch(() => ({ data: { OpenLostCount: 0, OpenFoundCount: 0, ReturnedCount: 0 } })),
-          api.get('/reports?Page=1&PageSize=6&Sort=newest').catch(() => ({ data: { Data: [] } }))
-        ]);
-        setStats(statsRes.data);
-        setRecentReports(reportsRes.data.Data || []);
-      } catch (err) {
-        console.error('Failed to load home data', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadHomeData();
+    Promise.all([
+      api.get('/reports/stats'),
+      api.get('/reports?PageSize=6'),
+    ]).then(([statsRes, reportsRes]) => {
+      setStats(statsRes.data);
+      setRecentReports(reportsRes.data.Data);
+    }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      navigate(`/reports?Search=${encodeURIComponent(searchQuery.trim())}`);
-    } else {
-      navigate('/reports');
+    navigate(`/reports?Search=${encodeURIComponent(searchQuery)}`);
+  };
+
+  const handleCTA = (type: 'lost' | 'found') => {
+    if (!user) {
+      navigate('/login');
+      return;
     }
+    navigate(`/reports/create?type=${type}`);
   };
 
   return (
-    <div className="space-y-16 pb-16">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden pt-16 pb-20 bg-gradient-to-b from-emerald-50/60 via-slate-50 to-slate-50 border-b border-emerald-100/40">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-full overflow-hidden -z-10 pointer-events-none">
-          <div className="absolute -top-24 left-1/4 w-96 h-96 bg-emerald-300/20 rounded-full blur-3xl"></div>
-          <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-teal-300/20 rounded-full blur-3xl"></div>
+    <div className="min-h-screen">
+      {/* Hero */}
+      <section className="relative bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 text-white overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-10 left-10 w-72 h-72 bg-white rounded-full blur-3xl"></div>
+          <div className="absolute bottom-10 right-10 w-96 h-96 bg-emerald-300 rounded-full blur-3xl"></div>
         </div>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
+          <div className="text-center max-w-3xl mx-auto">
+            <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur rounded-full px-4 py-1.5 text-sm font-medium mb-6">
+              <CheckCircle2 size={14} /> Sistem Informasi Barang Hilang &amp; Temuan Kampus
+            </div>
+            <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight mb-6 leading-tight">
+              Temukan Barang<br />
+              <span className="text-emerald-200">Hilang Anda</span>
+            </h1>
+            <p className="text-lg md:text-xl text-emerald-100 mb-10 max-w-2xl mx-auto">
+              CampusFind menghubungkan pelapor barang hilang dengan penemu barang di kampus secara terstruktur, cepat, dan terpercaya.
+            </p>
 
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-100/80 text-emerald-800 text-xs font-semibold uppercase tracking-wider mb-6 shadow-sm border border-emerald-200">
-            <Sparkles size={14} className="text-emerald-600" />
-            Sistem Resmi Informasi Lost & Found Kampus
-          </div>
-
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-gray-900 tracking-tight leading-[1.15] mb-6">
-            Temukan Kembali{' '}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-600">
-              Barang Berharga
-            </span>{' '}
-            Anda di Kampus
-          </h1>
-
-          <p className="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Platform terpusat dan terverifikasi untuk melaporkan barang hilang, mengamankan barang temuan,
-            dan mengajukan klaim kepemilikan secara aman & transparan.
-          </p>
-
-          {/* Search Box in Hero */}
-          <form onSubmit={handleSearchSubmit} className="max-w-2xl mx-auto mb-8">
-            <div className="relative flex items-center bg-white rounded-2xl shadow-xl shadow-emerald-950/5 border border-gray-200 p-2 focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all">
-              <Search className="h-6 w-6 text-gray-400 ml-3 mr-2 shrink-0" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari berdasarkan nama barang, lokasi, atau kategori..."
-                className="w-full py-2.5 px-2 text-gray-800 text-sm sm:text-base focus:outline-none"
-              />
-              <button
-                type="submit"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition-all shadow-md shrink-0"
-              >
-                Cari Barang
+            {/* Search */}
+            <form onSubmit={handleSearch} className="flex gap-2 max-w-xl mx-auto mb-10">
+              <div className="relative flex-grow">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Cari barang (contoh: dompet, kunci, laptop)..."
+                  className="w-full pl-11 pr-4 py-3.5 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 shadow-lg"
+                />
+              </div>
+              <button type="submit" className="px-6 py-3.5 bg-white text-emerald-700 font-semibold rounded-xl hover:bg-emerald-50 transition-colors shadow-lg text-sm whitespace-nowrap">
+                Cari
               </button>
+            </form>
+
+            {/* CTA Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                onClick={() => handleCTA('lost')}
+                className="flex items-center justify-center gap-2 px-7 py-3.5 bg-red-500 hover:bg-red-400 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-red-500/30 hover:-translate-y-0.5"
+              >
+                <AlertTriangle size={18} /> Laporkan Barang Hilang
+              </button>
+              <button
+                onClick={() => handleCTA('found')}
+                className="flex items-center justify-center gap-2 px-7 py-3.5 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl backdrop-blur border border-white/30 transition-all hover:-translate-y-0.5"
+              >
+                <PackageCheck size={18} /> Laporkan Barang Ditemukan
+              </button>
+              <Link
+                to="/reports"
+                className="flex items-center justify-center gap-2 px-7 py-3.5 bg-transparent hover:bg-white/10 text-white/80 hover:text-white font-semibold rounded-xl border border-white/20 transition-all"
+              >
+                <Search size={18} /> Cari Barang
+              </Link>
             </div>
-          </form>
-
-          {/* Quick Action CTA Buttons */}
-          <div className="flex flex-wrap items-center justify-center gap-4">
-            <Link
-              to="/reports/create?type=LOST"
-              className="inline-flex items-center gap-2.5 px-6 py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-lg shadow-rose-600/25 hover:shadow-xl hover:shadow-rose-600/35 transition-all transform hover:-translate-y-0.5"
-            >
-              <HelpCircle size={18} />
-              Laporkan Barang Hilang
-            </Link>
-            <Link
-              to="/reports/create?type=FOUND"
-              className="inline-flex items-center gap-2.5 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-600/25 hover:shadow-xl hover:shadow-emerald-600/35 transition-all transform hover:-translate-y-0.5"
-            >
-              <PackageOpen size={18} />
-              Laporkan Barang Ditemukan
-            </Link>
           </div>
+        </div>
 
-          {/* Important Security Notice Note as requested in requirement */}
-          <div className="mt-8 max-w-xl mx-auto flex items-start gap-2.5 p-3 rounded-xl bg-amber-50/80 border border-amber-200 text-left text-xs text-amber-800">
-            <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
-            <span>
-              <strong>Perhatian Privasi:</strong> Hindari mencantumkan data pribadi yang sangat sensitif (misal: PIN ATM, nomor rekening, kata sandi) pada deskripsi laporan publik.
-            </span>
+        {/* Wave */}
+        <div className="absolute bottom-0 left-0 right-0">
+          <svg viewBox="0 0 1440 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0 60L60 50C120 40 240 20 360 16.7C480 13.3 600 26.7 720 30C840 33.3 960 26.7 1080 23.3C1200 20 1320 20 1380 20L1440 20V60H0Z" fill="#f9fafb"/>
+          </svg>
+        </div>
+      </section>
+
+      {/* Stats */}
+      <section className="bg-gray-50 py-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-3 gap-4 md:gap-6">
+            {[
+              { label: 'Laporan Hilang Aktif', value: stats?.OpenLostReports, color: 'text-red-600', bg: 'bg-red-50', icon: AlertTriangle },
+              { label: 'Laporan Temuan Aktif', value: stats?.OpenFoundReports, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: PackageCheck },
+              { label: 'Barang Dikembalikan', value: stats?.CompletedHandovers, color: 'text-blue-600', bg: 'bg-blue-50', icon: CheckCircle2 },
+            ].map(({ label, value, color, bg, icon: Icon }) => (
+              <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col items-center text-center">
+                <div className={`w-10 h-10 ${bg} rounded-xl flex items-center justify-center mb-3`}>
+                  <Icon className={color} size={20} />
+                </div>
+                <div className={`text-2xl md:text-3xl font-extrabold ${color}`}>
+                  {loading ? <Loader2 className="animate-spin mx-auto" size={22} /> : value ?? 0}
+                </div>
+                <div className="text-xs text-gray-500 mt-1 font-medium">{label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Summary Statistics Cards */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-            <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
-              <HelpCircle size={28} />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Laporan Kehilangan Terbuka</p>
-              <p className="text-3xl font-black text-gray-900 mt-1">{stats.OpenLostCount}</p>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-              <PackageOpen size={28} />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Barang Ditemukan Terverifikasi</p>
-              <p className="text-3xl font-black text-gray-900 mt-1">{stats.OpenFoundCount}</p>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-            <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center font-bold">
-              <CheckCircle2 size={28} />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Berhasil Dikembalikan</p>
-              <p className="text-3xl font-black text-gray-900 mt-1">{stats.ReturnedCount}</p>
-            </div>
-          </div>
+      {/* Info banner */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+          <AlertTriangle className="text-amber-500 shrink-0 mt-0.5" size={18} />
+          <p className="text-sm text-amber-800">
+            <strong>Privasi Anda penting.</strong> Jangan cantumkan nomor KTP, PIN, kata sandi, atau informasi pribadi sensitif lainnya dalam deskripsi laporan publik.
+          </p>
         </div>
       </section>
 
-      {/* Recent Verified Reports Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8">
+      {/* Recent reports */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <div className="flex items-center gap-2 text-emerald-600 text-xs font-bold uppercase tracking-wider mb-1">
-              <ShieldCheck size={16} /> Terverifikasi Petugas
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-900">Laporan Terbaru</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Laporan Terbaru</h2>
+            <p className="text-sm text-gray-500 mt-1">Laporan yang telah diverifikasi petugas</p>
           </div>
-          <Link
-            to="/reports"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600 hover:text-emerald-700 group"
-          >
-            Lihat Semua Laporan
-            <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+          <Link to="/reports" className="flex items-center gap-1 text-sm font-semibold text-emerald-600 hover:text-emerald-700 transition-colors">
+            Lihat Semua <ChevronRight size={16} />
           </Link>
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3].map((n) => (
-              <div key={n} className="bg-white rounded-2xl p-6 border border-gray-100 animate-pulse space-y-4">
-                <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-                <div className="h-6 bg-gray-200 rounded w-3/4"></div>
-                <div className="h-16 bg-gray-200 rounded"></div>
-              </div>
-            ))}
+          <div className="flex justify-center py-16">
+            <Loader2 className="animate-spin text-emerald-500" size={36} />
           </div>
         ) : recentReports.length === 0 ? (
-          <div className="bg-white rounded-2xl p-12 text-center border border-gray-100 shadow-sm">
-            <FileText size={48} className="mx-auto text-gray-300 mb-3" />
-            <h3 className="font-bold text-gray-700 text-lg">Belum Ada Laporan Terbuka</h3>
-            <p className="text-gray-500 text-sm mt-1">Saat ini belum ada laporan kehilangan atau barang temuan aktif.</p>
+          <div className="text-center py-16 text-gray-500">
+            <FileText size={40} className="mx-auto mb-3 text-gray-300" />
+            <p className="font-medium">Belum ada laporan</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {recentReports.map((report) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {recentReports.map((r) => (
               <Link
-                key={report.Id}
-                to={`/reports/${report.Id}`}
-                className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:border-emerald-200/60 transition-all p-5 flex flex-col group"
+                key={r.Id}
+                to={`/reports/${r.Id}`}
+                className="group bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all overflow-hidden"
               >
-                {report.ImageUrl && (
-                  <div className="w-full h-44 rounded-xl overflow-hidden mb-4 bg-gray-100">
+                {r.ImageUrl ? (
+                  <div className="h-40 bg-gray-100 overflow-hidden">
                     <img
-                      src={report.ImageUrl}
-                      alt={report.Title}
+                      src={`http://localhost:3001${r.ImageUrl}`}
+                      alt={r.Title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   </div>
-                )}
-                
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <TypeBadge type={report.Type} />
-                  <StatusBadge status={report.Status} size="sm" />
-                </div>
-
-                <h3 className="font-bold text-gray-900 text-lg mb-2 group-hover:text-emerald-600 transition-colors line-clamp-1">
-                  {report.Title}
-                </h3>
-
-                <p className="text-xs text-gray-500 font-medium mb-4 bg-gray-50 px-2.5 py-1 rounded-md self-start">
-                  Kategori: {report.CategoryName}
-                </p>
-
-                <div className="mt-auto pt-3 border-t border-gray-100 space-y-1.5 text-xs text-gray-500">
-                  <div className="flex items-center gap-1.5">
-                    <MapPin size={14} className="text-gray-400 shrink-0" />
-                    <span className="truncate">{report.Location}</span>
+                ) : (
+                  <div className="h-40 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                    <FileText className="text-gray-300" size={40} />
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <Calendar size={14} className="text-gray-400 shrink-0" />
-                    <span>{new Date(report.EventAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                )}
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex gap-1.5">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${r.Type === 'LOST' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                        {r.Type === 'LOST' ? 'Hilang' : 'Ditemukan'}
+                      </span>
+                      <StatusBadge status={r.Status} size="sm" />
+                    </div>
+                  </div>
+                  <h3 className="font-semibold text-gray-900 group-hover:text-emerald-700 transition-colors line-clamp-1">{r.Title}</h3>
+                  <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                    <MapPin size={11} /> {r.Location}
+                  </p>
+                  <div className="flex items-center justify-between mt-3">
+                    <span className="text-xs text-gray-400">{new Date(r.CreatedAt).toLocaleDateString('id-ID')}</span>
+                    <span className="text-xs text-emerald-600 font-medium flex items-center gap-0.5">
+                      Lihat <ArrowRight size={12} />
+                    </span>
                   </div>
                 </div>
               </Link>
@@ -244,4 +230,6 @@ export default function Home() {
       </section>
     </div>
   );
-}
+};
+
+export default Home;

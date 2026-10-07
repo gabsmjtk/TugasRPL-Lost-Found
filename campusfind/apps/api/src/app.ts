@@ -6,38 +6,27 @@ import { errorHandler } from './middleware/error.middleware';
 
 import authRoutes from './routes/auth.routes';
 import reportsRoutes from './routes/reports.routes';
-import categoriesRoutes from './routes/categories.routes';
 import meRoutes from './routes/me.routes';
 import adminRoutes from './routes/admin.routes';
+import categoriesRoutes from './routes/categories.routes';
 
 const app = express();
 
-app.use(helmet());
-app.use(cors());
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
-// Routes
+app.get('/api/health', (_req, res) => res.json({ Status: 'ok' }));
+
 app.use('/api/auth', authRoutes);
 app.use('/api/reports', reportsRoutes);
-app.use('/api/categories', categoriesRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/categories', categoriesRoutes);
 
-// Claim direct route for /api/claims/:id/cancel
-app.post('/api/claims/:id/cancel', (req, res, next) => {
-  req.url = `/claims/${req.params.id}/cancel`;
-  meRoutes(req, res, next);
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date() });
-});
-
-// Error handling
 app.use(errorHandler);
 
 export default app;

@@ -6,77 +6,54 @@ interface AuthContextType {
   token: string | null;
   login: (token: string, user: UserSummary) => void;
   logout: () => void;
+  isLoading: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserSummary | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
+    const storedToken = localStorage.getItem('campusfind_token');
+    const storedUser = localStorage.getItem('campusfind_user');
     if (storedToken && storedUser) {
       try {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
-        
-        // Verify with backend
-        fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${storedToken}` }
-        }).then((res) => {
-          if (!res.ok) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            setToken(null);
-            setUser(null);
-          } else {
-            res.json().then((currentUser) => {
-              if (currentUser) {
-                setUser(currentUser);
-                localStorage.setItem('user', JSON.stringify(currentUser));
-              }
-            });
-          }
-        }).catch(() => {
-          // Keep offline or fail gracefully
-        });
-      } catch (e) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        setToken(null);
-        setUser(null);
+      } catch {
+        localStorage.removeItem('campusfind_token');
+        localStorage.removeItem('campusfind_user');
       }
     }
+    setIsLoading(false);
   }, []);
 
   const login = (newToken: string, newUser: UserSummary) => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
     setToken(newToken);
     setUser(newUser);
+    localStorage.setItem('campusfind_token', newToken);
+    localStorage.setItem('campusfind_user', JSON.stringify(newUser));
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
     setToken(null);
     setUser(null);
-    window.location.href = '/login';
+    localStorage.removeItem('campusfind_token');
+    localStorage.removeItem('campusfind_user');
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
 };

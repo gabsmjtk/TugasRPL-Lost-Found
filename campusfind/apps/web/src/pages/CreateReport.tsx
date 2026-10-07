@@ -1,321 +1,249 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { 
-  ArrowLeft, 
-  Upload, 
-  AlertCircle, 
-  CheckCircle2, 
-  HelpCircle, 
-  PackageOpen
-} from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
-import { Category } from '@campusfind/shared';
+import { useAuth } from '../contexts/AuthContext';
+import { Upload, AlertTriangle, PackageCheck, Loader2, X, CheckCircle2 } from 'lucide-react';
 
-export default function CreateReport() {
+interface Category { Id: string; Name: string; }
+
+const CreateReport: React.FC = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const initialType = (searchParams.get('type') || 'LOST').toUpperCase() as 'LOST' | 'FOUND';
+  const defaultType = searchParams.get('type') === 'found' ? 'FOUND' : 'LOST';
 
   const [categories, setCategories] = useState<Category[]>([]);
+  const [images, setImages] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  // Form states
-  const [type, setType] = useState<'LOST' | 'FOUND'>(initialType);
-  const [title, setTitle] = useState('');
-  const [categoryId, setCategoryId] = useState('');
-  const [brand, setBrand] = useState('');
-  const [color, setColor] = useState('');
-  const [location, setLocation] = useState('');
-  const [eventAt, setEventAt] = useState(new Date().toISOString().slice(0, 16));
-  const [description, setDescription] = useState('');
-  const [files, setFiles] = useState<File[]>([]);
-  const [filePreviews, setFilePreviews] = useState<string[]>([]);
+  const [form, setForm] = useState({
+    Title: '', Type: defaultType, CategoryId: '', Brand: '', Color: '',
+    Description: '', Location: '', EventAt: '',
+  });
 
   useEffect(() => {
-    api.get('/categories')
-      .then((res) => {
-        setCategories(res.data);
-        if (res.data.length > 0 && !categoryId) {
-          setCategoryId(res.data[0].Id);
-        }
-      })
-      .catch((err) => console.error(err));
-  }, []);
+    if (!user) { navigate('/login'); return; }
+    api.get('/categories').then(r => setCategories(r.data)).catch(() => {});
+  }, [user, navigate]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files).slice(0, 3);
-      setFiles(selectedFiles);
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    setForm(p => ({ ...p, [e.target.name]: e.target.value }));
+  };
 
-      // Create object URLs for previews
-      const previews = selectedFiles.map((file) => URL.createObjectURL(file));
-      setFilePreviews(previews);
-    }
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).slice(0, 3 - images.length);
+    const valid = files.filter(f => {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) return false;
+      if (f.size > 5 * 1024 * 1024) return false;
+      return true;
+    });
+    setImages(prev => [...prev, ...valid].slice(0, 3));
+    setImagePreviews(prev => {
+      const newPreviews = valid.map(f => URL.createObjectURL(f));
+      return [...prev, ...newPreviews].slice(0, 3);
+    });
+  };
+
+  const removeImage = (i: number) => {
+    setImages(prev => prev.filter((_, idx) => idx !== i));
+    setImagePreviews(prev => {
+      URL.revokeObjectURL(prev[i]);
+      return prev.filter((_, idx) => idx !== i);
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-
-    if (description.trim().length < 20) {
-      setError('Deskripsi harus memiliki panjang minimal 20 karakter.');
-      return;
-    }
-
-    if (!categoryId) {
-      setError('Pilih kategori barang.');
-      return;
-    }
-
     setLoading(true);
 
     try {
       const formData = new FormData();
-      formData.append('Type', type);
-      formData.append('Title', title);
-      formData.append('CategoryId', categoryId);
-      if (brand) formData.append('Brand', brand);
-      if (color) formData.append('Color', color);
-      formData.append('Location', location);
-      formData.append('EventAt', new Date(eventAt).toISOString());
-      formData.append('Description', description);
+      Object.entries(form).forEach(([k, v]) => { if (v) formData.append(k, v); });
+      images.forEach(img => formData.append('images', img));
 
-      files.forEach((file) => {
-        formData.append('images', file);
-      });
-
-      await api.post('/reports', formData, {
+      const res = await api.post('/reports', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
       setSuccess(true);
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 1500);
+      setTimeout(() => navigate(`/reports/${res.data.Id}`), 2000);
     } catch (err: any) {
-      setError(err.response?.data?.Message || 'Gagal menyimpan laporan. Pastikan data terisi dengan benar.');
+      setError(err.response?.data?.Message || 'Gagal membuat laporan');
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div className="max-w-3xl mx-auto px-4 py-8 sm:px-6">
-      <Link
-        to="/dashboard"
-        className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-800 mb-6 transition"
-      >
-        <ArrowLeft size={16} /> Kembali ke Dashboard
-      </Link>
-
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-xl overflow-hidden">
-        {/* Header Banner */}
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-8 text-white">
-          <h1 className="text-2xl sm:text-3xl font-black">Buat Laporan Barang</h1>
-          <p className="text-emerald-100 text-sm mt-1">
-            Isi formulir dengan lengkap agar petugas dapat segera memverifikasi laporan Anda.
-          </p>
+  if (success) {
+    return (
+      <div className="max-w-lg mx-auto py-24 text-center px-4">
+        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <CheckCircle2 className="text-green-600" size={32} />
         </div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Laporan Terkirim!</h2>
+        <p className="text-gray-500">Laporan Anda sedang menunggu verifikasi admin. Anda akan diarahkan ke halaman laporan...</p>
+      </div>
+    );
+  }
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-6">
-          {error && (
-            <div className="bg-rose-50 border-l-4 border-rose-500 p-4 rounded-r-xl flex items-start gap-3">
-              <AlertCircle size={20} className="text-rose-500 shrink-0 mt-0.5" />
-              <div className="text-sm text-rose-700 font-medium">{error}</div>
-            </div>
-          )}
+  return (
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Buat Laporan Baru</h1>
+        <p className="text-gray-500 text-sm mt-1">Isi form di bawah ini untuk melaporkan barang hilang atau ditemukan</p>
+      </div>
 
-          {success && (
-            <div className="bg-emerald-50 border-l-4 border-emerald-500 p-4 rounded-r-xl flex items-center gap-3">
-              <CheckCircle2 size={20} className="text-emerald-500 shrink-0" />
-              <div className="text-sm text-emerald-800 font-bold">
-                Laporan berhasil dibuat! Menunggu verifikasi admin. Mengalihkan ke dashboard...
-              </div>
-            </div>
-          )}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-5 flex gap-2">
+            <AlertTriangle className="text-red-500 shrink-0 mt-0.5" size={16} />
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
 
-          {/* Type Selector Tabs */}
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Type */}
           <div>
-            <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Jenis Laporan *</label>
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={() => setType('LOST')}
-                className={`py-4 px-4 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-bold text-sm transition-all ${
-                  type === 'LOST'
-                    ? 'border-rose-500 bg-rose-50 text-rose-700 shadow-sm'
-                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                }`}
-              >
-                <HelpCircle size={20} className={type === 'LOST' ? 'text-rose-600' : 'text-gray-400'} />
-                Barang Hilang
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setType('FOUND')}
-                className={`py-4 px-4 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-bold text-sm transition-all ${
-                  type === 'FOUND'
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm'
-                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                }`}
-              >
-                <PackageOpen size={20} className={type === 'FOUND' ? 'text-emerald-600' : 'text-gray-400'} />
-                Barang Ditemukan
-              </button>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Tipe Laporan *</label>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { value: 'LOST', label: 'Barang Hilang', icon: AlertTriangle, color: 'border-red-300 bg-red-50 text-red-700' },
+                { value: 'FOUND', label: 'Barang Ditemukan', icon: PackageCheck, color: 'border-emerald-300 bg-emerald-50 text-emerald-700' },
+              ].map(({ value, label, icon: Icon, color }) => (
+                <label
+                  key={value}
+                  className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${form.Type === value ? color : 'border-gray-200 hover:border-gray-300'}`}
+                >
+                  <input type="radio" name="Type" value={value} checked={form.Type === value} onChange={handleChange} className="sr-only" />
+                  <Icon size={18} />
+                  <span className="font-medium text-sm">{label}</span>
+                </label>
+              ))}
             </div>
           </div>
 
           {/* Title */}
           <div>
-            <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Nama Barang / Judul Laporan *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Judul / Nama Barang *</label>
             <input
-              type="text"
-              required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Contoh: Dompet Kulit Cokelat, Kunci Motor Honda Beat"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+              type="text" name="Title" required value={form.Title} onChange={handleChange}
+              placeholder="cth. Dompet kulit coklat"
+              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
             />
           </div>
 
-          {/* Category, Brand, Color */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Kategori *</label>
-              <select
-                required
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-emerald-500"
-              >
-                <option value="">Pilih Kategori</option>
-                {categories.map((c) => (
-                  <option key={c.Id} value={c.Id}>
-                    {c.Name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Merek / Brand (Opsional)</label>
-              <input
-                type="text"
-                value={brand}
-                onChange={(e) => setBrand(e.target.value)}
-                placeholder="Contoh: Asus, Apple, Eiger"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Warna (Opsional)</label>
-              <input
-                type="text"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                placeholder="Contoh: Hitam, Biru Dongker"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500"
-              />
-            </div>
+          {/* Category */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Kategori *</label>
+            <select
+              name="CategoryId" required value={form.CategoryId} onChange={handleChange}
+              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white"
+            >
+              <option value="">Pilih kategori...</option>
+              {categories.map(c => <option key={c.Id} value={c.Id}>{c.Name}</option>)}
+            </select>
           </div>
 
-          {/* Location and Date/Time */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Brand & Color */}
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Lokasi Kejadian / Ditemukan *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Merek (opsional)</label>
               <input
-                type="text"
-                required
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="Contoh: Depan Lab Komputer Lantai 2, Kantin Utama"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500"
+                type="text" name="Brand" value={form.Brand} onChange={handleChange}
+                placeholder="cth. Samsung"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
               />
             </div>
-
             <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Waktu & Tanggal Kejadian *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Warna (opsional)</label>
               <input
-                type="datetime-local"
-                required
-                value={eventAt}
-                onChange={(e) => setEventAt(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-emerald-500"
+                type="text" name="Color" value={form.Color} onChange={handleChange}
+                placeholder="cth. Hitam"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
               />
             </div>
           </div>
 
           {/* Description */}
           <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-xs font-bold text-gray-700 uppercase">Deskripsi Rinci *</label>
-              <span className={`text-xs ${description.length < 20 ? 'text-rose-500 font-semibold' : 'text-gray-400'}`}>
-                {description.length}/1000 karakter (min. 20)
-              </span>
-            </div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi * (20–1000 karakter)</label>
             <textarea
-              required
+              name="Description" required value={form.Description} onChange={handleChange}
+              placeholder="Deskripsikan barang secara detail. JANGAN cantumkan informasi pribadi sensitif."
               rows={4}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Ceritakan ciri-ciri khusus barang, kronologi kehilangan/penemuan. Hindari mencantumkan kata sandi atau data perbankan rahasia."
-              className="w-full p-4 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 resize-none"
+              minLength={20} maxLength={1000}
+            />
+            <div className="text-xs text-gray-400 mt-1 text-right">{form.Description.length}/1000</div>
+          </div>
+
+          {/* Location */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Lokasi *</label>
+            <input
+              type="text" name="Location" required value={form.Location} onChange={handleChange}
+              placeholder="cth. Gedung A Lantai 2, Perpustakaan"
+              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
             />
           </div>
 
-          {/* File Upload (Up to 3 images) */}
+          {/* Event date */}
           <div>
-            <label className="block text-xs font-bold text-gray-700 uppercase mb-2">
-              Foto Barang (Opsional, Maksimal 3 foto, @5MB)
-            </label>
-            <div className="border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center hover:border-emerald-500 transition-colors bg-gray-50/50">
-              <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
-              <p className="text-xs text-gray-600 font-medium">Klik untuk memilih foto atau seret ke sini</p>
-              <p className="text-[11px] text-gray-400 mt-1">Format didukung: JPG, PNG, WEBP</p>
-              <input
-                type="file"
-                multiple
-                accept="image/jpeg,image/png,image/webp"
-                onChange={handleFileChange}
-                className="hidden"
-                id="file-upload"
-              />
-              <label
-                htmlFor="file-upload"
-                className="inline-block mt-3 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-50 cursor-pointer shadow-sm"
-              >
-                Pilih File
-              </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal & Waktu Kejadian *</label>
+            <input
+              type="datetime-local" name="EventAt" required value={form.EventAt} onChange={handleChange}
+              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+            />
+          </div>
+
+          {/* Images */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Foto Barang (maks. 3)</label>
+            <div className="flex flex-wrap gap-3">
+              {imagePreviews.map((src, i) => (
+                <div key={i} className="relative w-24 h-24 rounded-xl overflow-hidden border border-gray-200">
+                  <img src={src} alt="" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeImage(i)}
+                    className="absolute top-1 right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+              {images.length < 3 && (
+                <label className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-colors">
+                  <Upload size={18} className="text-gray-400" />
+                  <span className="text-xs text-gray-400 mt-1">Tambah</span>
+                  <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleImageChange} className="sr-only" />
+                </label>
+              )}
             </div>
-
-            {/* Previews */}
-            {filePreviews.length > 0 && (
-              <div className="flex gap-4 mt-4">
-                {filePreviews.map((src, i) => (
-                  <div key={i} className="w-20 h-20 rounded-xl border border-gray-200 overflow-hidden bg-gray-100">
-                    <img src={src} alt="Preview" className="w-full h-full object-cover" />
-                  </div>
-                ))}
-              </div>
-            )}
+            <p className="text-xs text-gray-400 mt-1">Format: JPEG, PNG, WebP · Maks. 5 MB per foto</p>
           </div>
 
-          {/* Submit Button */}
-          <div className="pt-4 border-t border-gray-100">
-            <button
-              type="submit"
-              disabled={loading || description.length < 20}
-              className="w-full py-4 px-6 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-600/20 transition-all"
-            >
-              {loading ? 'Menyimpan Laporan...' : 'Kirim Laporan untuk Verifikasi'}
-            </button>
+          {/* Privacy warning */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2">
+            <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700">Jangan cantumkan nomor KTP, PIN, kata sandi, atau informasi sensitif lainnya dalam deskripsi.</p>
           </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+          >
+            {loading ? <><Loader2 size={16} className="animate-spin" /> Mengirim...</> : 'Kirim Laporan'}
+          </button>
         </form>
       </div>
     </div>
   );
-}
+};
+
+export default CreateReport;

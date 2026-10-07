@@ -1,329 +1,237 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { 
-  Search, 
-  MapPin, 
-  Calendar, 
-  ChevronLeft, 
-  ChevronRight, 
-  Inbox, 
-  RefreshCw, 
-  PlusCircle 
-} from 'lucide-react';
 import api from '../services/api';
-import { ReportSummary, Category } from '@campusfind/shared';
-import { StatusBadge, TypeBadge } from '../components/StatusBadge';
+import StatusBadge from '../components/StatusBadge';
+import { Search, MapPin, Filter, X, ChevronLeft, ChevronRight, Loader2, FileText, AlertCircle } from 'lucide-react';
 
-export default function Reports() {
+interface Category { Id: string; Name: string; }
+interface Report {
+  Id: string; Type: string; Status: string; Title: string;
+  CategoryName: string; Location: string; EventAt: string;
+  CreatedAt: string; ImageUrl?: string; ReporterName: string;
+}
+interface Paginated { Data: Report[]; Total: number; Page: number; PageSize: number; TotalPages: number; }
+
+const Reports: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  
-  const [reports, setReports] = useState<ReportSummary[]>([]);
+  const [reports, setReports] = useState<Paginated | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
+  const [error, setError] = useState('');
 
-  // Filter States
   const search = searchParams.get('Search') || '';
   const type = searchParams.get('Type') || '';
   const categoryId = searchParams.get('CategoryId') || '';
-  const location = searchParams.get('Location') || '';
   const status = searchParams.get('Status') || '';
   const sort = searchParams.get('Sort') || 'newest';
-  const page = parseInt(searchParams.get('Page') || '1', 10);
+  const page = parseInt(searchParams.get('Page') || '1');
 
-  // Load Categories once
+  const [searchInput, setSearchInput] = useState(search);
+
+  const fetchReports = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set('Search', search);
+      if (type) params.set('Type', type);
+      if (categoryId) params.set('CategoryId', categoryId);
+      if (status) params.set('Status', status);
+      params.set('Sort', sort);
+      params.set('Page', String(page));
+      params.set('PageSize', '9');
+
+      const res = await api.get(`/reports?${params.toString()}`);
+      setReports(res.data);
+    } catch (e: any) {
+      setError('Gagal memuat laporan. Pastikan server API berjalan.');
+    } finally {
+      setLoading(false);
+    }
+  }, [search, type, categoryId, status, sort, page]);
+
   useEffect(() => {
-    api.get('/categories')
-      .then((res) => setCategories(res.data))
-      .catch((err) => console.error('Failed to load categories', err));
-  }, []);
-
-  // Fetch reports on filter change
-  useEffect(() => {
-    const fetchReports = async () => {
-      setLoading(true);
-      try {
-        const queryParams = new URLSearchParams();
-        if (search) queryParams.set('Search', search);
-        if (type) queryParams.set('Type', type);
-        if (categoryId) queryParams.set('CategoryId', categoryId);
-        if (location) queryParams.set('Location', location);
-        if (status) queryParams.set('Status', status);
-        queryParams.set('Sort', sort);
-        queryParams.set('Page', page.toString());
-        queryParams.set('PageSize', '9');
-
-        const res = await api.get(`/reports?${queryParams.toString()}`);
-        setReports(res.data.Data || []);
-        setTotalPages(res.data.TotalPages || 1);
-        setTotalCount(res.data.Total || 0);
-      } catch (err) {
-        console.error('Failed to load reports', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
+    api.get('/categories').then(r => setCategories(r.data)).catch(() => {});
     fetchReports();
-  }, [search, type, categoryId, location, status, sort, page]);
+  }, [fetchReports]);
 
-  const updateParam = (key: string, value: string) => {
+  const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(searchParams);
-    if (value) {
-      next.set(key, value);
-    } else {
-      next.delete(key);
-    }
-    // reset to page 1 on filter modification
-    if (key !== 'Page') {
-      next.set('Page', '1');
-    }
+    if (value) next.set(key, value); else next.delete(key);
+    next.delete('Page');
     setSearchParams(next);
   };
 
-  const handleResetFilters = () => {
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFilter('Search', searchInput);
+  };
+
+  const clearFilters = () => {
+    setSearchInput('');
     setSearchParams({});
   };
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-100 pb-6">
-        <div>
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Cari Laporan Barang</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Telusuri barang yang dilaporkan hilang atau ditemukan di seluruh area kampus.
-          </p>
-        </div>
+  const hasFilters = search || type || categoryId || status;
 
-        <Link
-          to="/reports/create"
-          className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-xl text-sm shadow-md transition-all hover:shadow-lg"
-        >
-          <PlusCircle size={18} /> Buat Laporan Baru
-        </Link>
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Daftar Laporan</h1>
+        <p className="text-gray-500 text-sm mt-1">
+          {reports ? `${reports.Total} laporan ditemukan` : 'Memuat...'}
+        </p>
       </div>
 
-      {/* Filter and Search Panel */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-        {/* Search bar & Type Toggle */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-          <div className="md:col-span-8 relative">
-            <Search className="absolute left-3.5 top-3.5 text-gray-400" size={18} />
+      {/* Search & Filters */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-6">
+        <form onSubmit={handleSearch} className="flex gap-2 mb-4">
+          <div className="relative flex-grow">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input
               type="text"
-              value={search}
-              onChange={(e) => updateParam('Search', e.target.value)}
-              placeholder="Cari kata kunci (nama barang, deskripsi, lokasi)..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Cari judul, deskripsi, lokasi..."
+              className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-transparent"
             />
           </div>
-
-          <div className="md:col-span-4 flex rounded-xl bg-gray-100 p-1">
-            <button
-              onClick={() => updateParam('Type', '')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                !type ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Semua Jenis
+          <button type="submit" className="px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+            Cari
+          </button>
+          {hasFilters && (
+            <button type="button" onClick={clearFilters} className="px-3 py-2.5 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Hapus filter">
+              <X size={16} />
             </button>
-            <button
-              onClick={() => updateParam('Type', 'LOST')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                type === 'LOST' ? 'bg-rose-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Hilang
-            </button>
-            <button
-              onClick={() => updateParam('Type', 'FOUND')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                type === 'FOUND' ? 'bg-emerald-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Ditemukan
-            </button>
-          </div>
-        </div>
+          )}
+        </form>
 
-        {/* Detailed Filters row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-          {/* Category */}
-          <div>
-            <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">Kategori</label>
-            <select
-              value={categoryId}
-              onChange={(e) => updateParam('CategoryId', e.target.value)}
-              className="w-full py-2 px-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-emerald-500"
-            >
-              <option value="">Semua Kategori</option>
-              {categories.map((cat) => (
-                <option key={cat.Id} value={cat.Id}>
-                  {cat.Name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="flex flex-wrap gap-2">
+          {/* Type filter */}
+          <select
+            value={type}
+            onChange={(e) => setFilter('Type', e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white"
+          >
+            <option value="">Semua Tipe</option>
+            <option value="LOST">Barang Hilang</option>
+            <option value="FOUND">Barang Ditemukan</option>
+          </select>
 
-          {/* Location */}
-          <div>
-            <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">Lokasi</label>
-            <input
-              type="text"
-              value={location}
-              onChange={(e) => updateParam('Location', e.target.value)}
-              placeholder="Contoh: Gedung A, Kantin"
-              className="w-full py-2 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-
-          {/* Status */}
-          <div>
-            <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">Status</label>
-            <select
-              value={status}
-              onChange={(e) => updateParam('Status', e.target.value)}
-              className="w-full py-2 px-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-emerald-500"
-            >
-              <option value="">Semua Status Terverifikasi</option>
-              <option value="OPEN">Terbuka (OPEN)</option>
-              <option value="MATCHED">Ditemukan (MATCHED)</option>
-              <option value="CLAIMED">Diklaim (CLAIMED)</option>
-              <option value="RETURNED">Dikembalikan (RETURNED)</option>
-            </select>
-          </div>
+          {/* Category filter */}
+          <select
+            value={categoryId}
+            onChange={(e) => setFilter('CategoryId', e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white"
+          >
+            <option value="">Semua Kategori</option>
+            {categories.map(c => <option key={c.Id} value={c.Id}>{c.Name}</option>)}
+          </select>
 
           {/* Sort */}
-          <div>
-            <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">Urutan</label>
-            <select
-              value={sort}
-              onChange={(e) => updateParam('Sort', e.target.value)}
-              className="w-full py-2 px-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-emerald-500"
-            >
-              <option value="newest">Terbaru</option>
-              <option value="oldest">Terlama</option>
-            </select>
-          </div>
+          <select
+            value={sort}
+            onChange={(e) => setFilter('Sort', e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white"
+          >
+            <option value="newest">Terbaru</option>
+            <option value="oldest">Terlama</option>
+          </select>
         </div>
-
-        {/* Active Filters count & reset button */}
-        {(search || type || categoryId || location || status) && (
-          <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-xs">
-            <span className="text-gray-500">Filter aktif diterapkan</span>
-            <button
-              onClick={handleResetFilters}
-              className="text-rose-600 hover:text-rose-700 font-semibold flex items-center gap-1"
-            >
-              <RefreshCw size={12} /> Reset Filter
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* Reports Results Feed */}
-      <div>
-        <div className="flex justify-between items-center mb-4">
-          <p className="text-sm font-semibold text-gray-500">
-            Ditemukan <span className="text-gray-900 font-bold">{totalCount}</span> laporan
-          </p>
+      {/* Content */}
+      {error ? (
+        <div className="flex flex-col items-center py-16 text-center">
+          <AlertCircle className="text-red-400 mb-3" size={40} />
+          <p className="text-red-600 font-medium">{error}</p>
+          <button onClick={fetchReports} className="mt-4 px-4 py-2 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100">
+            Coba Lagi
+          </button>
         </div>
-
-        {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <div key={n} className="bg-white rounded-2xl p-6 border border-gray-100 animate-pulse space-y-4">
-                <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-                <div className="h-6 bg-gray-200 rounded w-3/4"></div>
-                <div className="h-20 bg-gray-200 rounded"></div>
-              </div>
-            ))}
-          </div>
-        ) : reports.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">
-            <Inbox size={48} className="mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-bold text-gray-800">Tidak ada laporan yang sesuai</h3>
-            <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
-              Coba sesuaikan kata kunci pencarian atau bersihkan filter untuk melihat laporan lainnya.
-            </p>
-            <button
-              onClick={handleResetFilters}
-              className="mt-5 px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition"
-            >
-              Reset Semua Filter
+      ) : loading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 className="animate-spin text-emerald-500" size={36} />
+        </div>
+      ) : reports?.Data.length === 0 ? (
+        <div className="flex flex-col items-center py-20 text-center">
+          <FileText className="text-gray-300 mb-3" size={48} />
+          <p className="text-gray-500 font-medium text-lg">Tidak ada laporan ditemukan</p>
+          <p className="text-gray-400 text-sm mt-1">Coba ubah kata kunci atau filter pencarian</p>
+          {hasFilters && (
+            <button onClick={clearFilters} className="mt-4 text-sm text-emerald-600 hover:underline">
+              Hapus semua filter
             </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {reports.map((report) => (
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {reports?.Data.map((r) => (
               <Link
-                key={report.Id}
-                to={`/reports/${report.Id}`}
-                className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:border-emerald-200/60 transition-all p-5 flex flex-col group"
+                key={r.Id}
+                to={`/reports/${r.Id}`}
+                className="group bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all overflow-hidden"
               >
-                {report.ImageUrl && (
-                  <div className="w-full h-44 rounded-xl overflow-hidden mb-4 bg-gray-100">
+                {r.ImageUrl ? (
+                  <div className="h-40 bg-gray-100 overflow-hidden">
                     <img
-                      src={report.ImageUrl}
-                      alt={report.Title}
+                      src={`http://localhost:3001${r.ImageUrl}`}
+                      alt={r.Title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   </div>
-                )}
-
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <TypeBadge type={report.Type} />
-                  <StatusBadge status={report.Status} size="sm" />
-                </div>
-
-                <h3 className="font-bold text-gray-900 text-lg mb-2 group-hover:text-emerald-600 transition-colors line-clamp-1">
-                  {report.Title}
-                </h3>
-
-                <p className="text-xs text-gray-500 font-medium mb-4 bg-gray-50 px-2.5 py-1 rounded-md self-start">
-                  Kategori: {report.CategoryName}
-                </p>
-
-                <div className="mt-auto pt-3 border-t border-gray-100 space-y-1.5 text-xs text-gray-500">
-                  <div className="flex items-center gap-1.5">
-                    <MapPin size={14} className="text-gray-400 shrink-0" />
-                    <span className="truncate">{report.Location}</span>
+                ) : (
+                  <div className="h-40 bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
+                    <FileText className="text-gray-300" size={40} />
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <Calendar size={14} className="text-gray-400 shrink-0" />
-                    <span>{new Date(report.EventAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                )}
+                <div className="p-4">
+                  <div className="flex gap-1.5 mb-2">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${r.Type === 'LOST' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {r.Type === 'LOST' ? 'Hilang' : 'Ditemukan'}
+                    </span>
+                    <StatusBadge status={r.Status} size="sm" />
+                  </div>
+                  <h3 className="font-semibold text-gray-900 group-hover:text-emerald-700 transition-colors line-clamp-1">{r.Title}</h3>
+                  <p className="text-xs text-gray-500 mt-1 flex items-center gap-1 line-clamp-1">
+                    <MapPin size={11} /> {r.Location}
+                  </p>
+                  <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
+                    <span>{r.CategoryName}</span>
+                    <span>{new Date(r.EventAt).toLocaleDateString('id-ID')}</span>
                   </div>
                 </div>
               </Link>
             ))}
           </div>
-        )}
 
-        {/* Pagination controls */}
-        {totalPages > 1 && (
-          <div className="flex justify-center items-center gap-2 pt-8">
-            <button
-              onClick={() => updateParam('Page', (page - 1).toString())}
-              disabled={page <= 1}
-              className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <span className="text-sm font-semibold text-gray-600 px-4">
-              Halaman {page} dari {totalPages}
-            </span>
-            <button
-              onClick={() => updateParam('Page', (page + 1).toString())}
-              disabled={page >= totalPages}
-              className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-        )}
-      </div>
+          {/* Pagination */}
+          {reports && reports.TotalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-8">
+              <button
+                onClick={() => setFilter('Page', String(page - 1))}
+                disabled={page <= 1}
+                className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <span className="text-sm text-gray-600 px-3">
+                Halaman {page} dari {reports.TotalPages}
+              </span>
+              <button
+                onClick={() => setFilter('Page', String(page + 1))}
+                disabled={page >= reports.TotalPages}
+                className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
-}
+};
+
+export default Reports;

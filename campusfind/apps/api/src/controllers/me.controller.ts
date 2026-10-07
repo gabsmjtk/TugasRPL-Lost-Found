@@ -1,312 +1,318 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { z } from 'zod';
-import { ReportType, ReportStatus, ClaimStatus, ReportSummary, ClaimSummary, StudentDashboardResponse } from '@campusfind/shared';
+import { ReportType, ReportStatus, ClaimStatus } from '@campusfind/shared';
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function toReportSummary(r: any) {
+  return {
+    Id: r.Id,
+    Type: r.Type,
+    Status: r.Status,
+    Title: r.Title,
+    CategoryId: r.CategoryId,
+    CategoryName: r.Category?.Name ?? '',
+    Location: r.Location,
+    EventAt: r.EventAt.toISOString(),
+    CreatedAt: r.CreatedAt.toISOString(),
+    UpdatedAt: r.UpdatedAt.toISOString(),
+    ReporterId: r.ReporterId,
+    ReporterName: r.Reporter
+      ? r.Reporter.Name.split(' ')[0] + ' ' + (r.Reporter.Name.split(' ')[1]?.[0] ?? '') + '.'
+      : '',
+    ImageUrl: r.Images?.[0]
+      ? `/uploads/${r.Images[0].FileName}`
+      : undefined,
+  };
+}
+
+function toClaimSummary(c: any) {
+  return {
+    Id: c.Id,
+    ReportId: c.ReportId,
+    ReportTitle: c.Report?.Title ?? '',
+    ClaimantId: c.ClaimantId,
+    ClaimantName: c.Claimant?.Name ?? '',
+    ProofAnswer: c.ProofAnswer,
+    OwnershipDescription: c.OwnershipDescription,
+    ContactPhone: c.ContactPhone,
+    Status: c.Status,
+    DecisionNote: c.DecisionNote ?? null,
+    DecidedAt: c.DecidedAt?.toISOString() ?? null,
+    CreatedAt: c.CreatedAt.toISOString(),
+    UpdatedAt: c.UpdatedAt.toISOString(),
+  };
+}
+
+// ── schemas ───────────────────────────────────────────────────────────────────
 
 const createReportSchema = z.object({
-  Title: z.string().min(1, 'Title is required'),
-  Type: z.enum(['LOST', 'FOUND']),
-  CategoryId: z.string().min(1, 'Category is required'),
+  Title: z.string().min(1, 'Judul diperlukan'),
+  Type: z.nativeEnum(ReportType),
+  CategoryId: z.string().min(1, 'Kategori diperlukan'),
   Brand: z.string().optional(),
   Color: z.string().optional(),
-  Description: z.string().min(20, 'Description must be at least 20 characters').max(1000),
-  Location: z.string().min(1, 'Location is required'),
-  EventAt: z.string().refine((val) => !isNaN(Date.parse(val)), {
-    message: 'EventAt must be a valid date',
-  })
+  Description: z.string().min(20, 'Deskripsi minimal 20 karakter').max(1000),
+  Location: z.string().min(1, 'Lokasi diperlukan'),
+  EventAt: z.string().min(1, 'Tanggal kejadian diperlukan'),
 });
 
-const submitClaimSchema = z.object({
-  ProofAnswer: z.string().min(1, 'Proof answer is required'),
-  OwnershipDescription: z.string().min(1, 'Ownership description is required'),
-  ContactPhone: z.string().min(1, 'Contact phone is required')
+const updateReportSchema = z.object({
+  Title: z.string().min(1).optional(),
+  CategoryId: z.string().optional(),
+  Brand: z.string().optional(),
+  Color: z.string().optional(),
+  Description: z.string().min(20).max(1000).optional(),
+  Location: z.string().optional(),
+  EventAt: z.string().optional(),
 });
+
+const claimSchema = z.object({
+  ProofAnswer: z.string().min(1, 'Jawaban bukti diperlukan'),
+  OwnershipDescription: z.string().min(1, 'Deskripsi kepemilikan diperlukan'),
+  ContactPhone: z.string().min(1, 'Nomor telepon diperlukan'),
+});
+
+// ── controllers ───────────────────────────────────────────────────────────────
 
 export const createReport = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = req.user!;
     const data = createReportSchema.parse(req.body);
-    const files = req.files as Express.Multer.File[];
+    const files = (req.files as Express.Multer.File[]) ?? [];
+
+    const category = await prisma.category.findFirst({
+      where: { Id: data.CategoryId, IsActive: true },
+    });
+    if (!category) return res.status(404).json({ Message: 'Kategori tidak ditemukan' });
 
     const report = await prisma.report.create({
       data: {
-        ReporterId: req.user!.Id,
+        ReporterId: user.Id,
         CategoryId: data.CategoryId,
         Type: data.Type,
-        Status: ReportStatus.PENDING,
         Title: data.Title,
         Brand: data.Brand,
         Color: data.Color,
         Description: data.Description,
         Location: data.Location,
         EventAt: new Date(data.EventAt),
-      }
+        Images: {
+          create: files.map((f, i) => ({
+            FileName: f.filename,
+            FilePath: f.path,
+            MimeType: f.mimetype,
+            SortOrder: i,
+          })),
+        },
+      },
+      include: { Category: true, Images: true, Reporter: true },
     });
 
-    if (files && files.length > 0) {
-      const imageCreates = files.slice(0, 3).map((f, idx) => ({
-        ReportId: report.Id,
-        FileName: f.filename,
-        FilePath: `/uploads/${f.filename}`,
-        MimeType: f.mimetype,
-        SortOrder: idx
-      }));
-      await prisma.reportImage.createMany({ data: imageCreates });
-    }
-
-    res.status(201).json({ Message: 'Report created successfully', Id: report.Id });
-  } catch (error) {
-    next(error);
+    res.status(201).json(toReportSummary(report));
+  } catch (err) {
+    next(err);
   }
 };
 
 export const updateReport = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = req.user!;
     const { id } = req.params;
-    const data = createReportSchema.partial().parse(req.body);
-    
-    const report = await prisma.report.findUnique({ where: { Id: id } });
-    if (!report) return res.status(404).json({ Message: 'Report not found' });
-    if (report.ReporterId !== req.user!.Id) return res.status(403).json({ Message: 'Forbidden' });
-    if (report.Status !== 'PENDING' && report.Status !== 'OPEN') {
-      return res.status(400).json({ Message: 'Cannot edit report in current status' });
-    }
+    const data = updateReportSchema.parse(req.body);
 
-    await prisma.report.update({
+    const report = await prisma.report.findUnique({ where: { Id: id } });
+    if (!report) return res.status(404).json({ Message: 'Laporan tidak ditemukan' });
+    if (report.ReporterId !== user.Id)
+      return res.status(403).json({ Message: 'Tidak diizinkan' });
+    if (![ReportStatus.PENDING, ReportStatus.OPEN].includes(report.Status as ReportStatus))
+      return res.status(400).json({ Message: 'Laporan tidak dapat diedit pada status ini' });
+
+    const updated = await prisma.report.update({
       where: { Id: id },
       data: {
         ...data,
         EventAt: data.EventAt ? new Date(data.EventAt) : undefined,
-      }
+      },
+      include: { Category: true, Images: true, Reporter: true },
     });
 
-    res.json({ Message: 'Report updated' });
-  } catch (error) {
-    next(error);
+    res.json(toReportSummary(updated));
+  } catch (err) {
+    next(err);
   }
 };
 
 export const deleteReport = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = req.user!;
     const { id } = req.params;
-    const report = await prisma.report.findUnique({ where: { Id: id } });
-    
-    if (!report) return res.status(404).json({ Message: 'Report not found' });
-    if (report.ReporterId !== req.user!.Id) return res.status(403).json({ Message: 'Forbidden' });
-    if (report.Status !== 'PENDING' && report.Status !== 'OPEN') {
-      return res.status(400).json({ Message: 'Cannot delete report in current status' });
-    }
 
+    const report = await prisma.report.findUnique({ where: { Id: id } });
+    if (!report) return res.status(404).json({ Message: 'Laporan tidak ditemukan' });
+    if (report.ReporterId !== user.Id)
+      return res.status(403).json({ Message: 'Tidak diizinkan' });
+    if (![ReportStatus.PENDING, ReportStatus.OPEN].includes(report.Status as ReportStatus))
+      return res.status(400).json({ Message: 'Laporan tidak dapat dihapus pada status ini' });
+
+    await prisma.reportImage.deleteMany({ where: { ReportId: id } });
     await prisma.report.delete({ where: { Id: id } });
-    res.json({ Message: 'Report deleted' });
-  } catch (error) {
-    next(error);
+
+    res.json({ Message: 'Laporan berhasil dihapus' });
+  } catch (err) {
+    next(err);
   }
 };
 
 export const markFound = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = req.user!;
     const { id } = req.params;
-    const report = await prisma.report.findUnique({ where: { Id: id } });
-    
-    if (!report) return res.status(404).json({ Message: 'Report not found' });
-    if (report.ReporterId !== req.user!.Id) return res.status(403).json({ Message: 'Forbidden' });
-    if (report.Type !== 'LOST' || report.Status !== 'OPEN') {
-      return res.status(400).json({ Message: 'Invalid report type or status for this action' });
-    }
 
-    await prisma.report.update({
+    const report = await prisma.report.findUnique({ where: { Id: id } });
+    if (!report) return res.status(404).json({ Message: 'Laporan tidak ditemukan' });
+    if (report.ReporterId !== user.Id)
+      return res.status(403).json({ Message: 'Tidak diizinkan' });
+    if (report.Type !== ReportType.LOST || report.Status !== ReportStatus.OPEN)
+      return res.status(400).json({ Message: 'Hanya laporan barang hilang yang terbuka yang dapat ditandai' });
+
+    const updated = await prisma.report.update({
       where: { Id: id },
-      data: { Status: ReportStatus.MATCHED }
+      data: { Status: ReportStatus.MATCHED },
+      include: { Category: true, Images: true, Reporter: true },
     });
 
-    res.json({ Message: 'Report marked as found/matched' });
-  } catch (error) {
-    next(error);
+    res.json(toReportSummary(updated));
+  } catch (err) {
+    next(err);
   }
 };
 
 export const submitClaim = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
-    const data = submitClaimSchema.parse(req.body);
-    const userId = req.user!.Id;
+    const user = req.user!;
+    const { id: reportId } = req.params;
+    const data = claimSchema.parse(req.body);
 
-    const report = await prisma.report.findUnique({ where: { Id: id } });
-    if (!report || report.Status !== 'OPEN' || report.Type !== 'FOUND') {
-      return res.status(400).json({ Message: 'Report is not available for claiming' });
-    }
-    if (report.ReporterId === userId) {
-      return res.status(400).json({ Message: 'Cannot claim your own report' });
-    }
+    const report = await prisma.report.findUnique({ where: { Id: reportId } });
+    if (!report) return res.status(404).json({ Message: 'Laporan tidak ditemukan' });
+    if (report.ReporterId === user.Id)
+      return res.status(400).json({ Message: 'Tidak dapat mengklaim laporan sendiri' });
+    if (report.Type !== ReportType.FOUND || report.Status !== ReportStatus.OPEN)
+      return res.status(400).json({ Message: 'Hanya laporan barang ditemukan yang terbuka yang dapat diklaim' });
 
-    const existingClaim = await prisma.claim.findFirst({
-      where: {
-        ReportId: id,
-        ClaimantId: userId,
-        Status: { notIn: ['CANCELLED', 'REJECTED'] }
-      }
+    const existing = await prisma.claim.findFirst({
+      where: { ReportId: reportId, ClaimantId: user.Id, Status: { in: [ClaimStatus.PENDING, ClaimStatus.APPROVED] } },
     });
-    if (existingClaim) {
-      return res.status(400).json({ Message: 'You already have an active claim for this report' });
-    }
+    if (existing) return res.status(400).json({ Message: 'Anda sudah memiliki klaim aktif untuk laporan ini' });
 
     const claim = await prisma.claim.create({
       data: {
-        ReportId: id,
-        ClaimantId: userId,
+        ReportId: reportId,
+        ClaimantId: user.Id,
         ProofAnswer: data.ProofAnswer,
         OwnershipDescription: data.OwnershipDescription,
         ContactPhone: data.ContactPhone,
-      }
+      },
+      include: { Report: true, Claimant: true },
     });
 
-    res.status(201).json({ Message: 'Claim submitted successfully', Id: claim.Id });
-  } catch (error) {
-    next(error);
+    res.status(201).json(toClaimSummary(claim));
+  } catch (err) {
+    next(err);
   }
 };
 
 export const cancelClaim = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = req.user!;
     const { id } = req.params;
-    const claim = await prisma.claim.findUnique({ where: { Id: id } });
-    
-    if (!claim) return res.status(404).json({ Message: 'Claim not found' });
-    if (claim.ClaimantId !== req.user!.Id) return res.status(403).json({ Message: 'Forbidden' });
-    if (claim.Status !== 'PENDING') return res.status(400).json({ Message: 'Only pending claims can be cancelled' });
 
-    await prisma.claim.update({
+    const claim = await prisma.claim.findUnique({ where: { Id: id }, include: { Report: true } });
+    if (!claim) return res.status(404).json({ Message: 'Klaim tidak ditemukan' });
+    if (claim.ClaimantId !== user.Id)
+      return res.status(403).json({ Message: 'Tidak diizinkan' });
+    if (claim.Status !== ClaimStatus.PENDING)
+      return res.status(400).json({ Message: 'Hanya klaim yang menunggu yang dapat dibatalkan' });
+
+    const updated = await prisma.claim.update({
       where: { Id: id },
-      data: { Status: ClaimStatus.CANCELLED }
+      data: { Status: ClaimStatus.CANCELLED },
+      include: { Report: true, Claimant: true },
     });
 
-    res.json({ Message: 'Claim cancelled' });
-  } catch (error) {
-    next(error);
+    res.json(toClaimSummary(updated));
+  } catch (err) {
+    next(err);
   }
 };
 
 export const myReports = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = req.user!;
     const reports = await prisma.report.findMany({
-      where: { ReporterId: req.user!.Id },
-      include: { Category: true, Images: { take: 1 } },
-      orderBy: { UpdatedAt: 'desc' }
+      where: { ReporterId: user.Id },
+      include: { Category: true, Images: { take: 1 }, Reporter: true },
+      orderBy: { CreatedAt: 'desc' },
     });
-
-    const data: ReportSummary[] = reports.map(r => ({
-      Id: r.Id,
-      Type: r.Type as ReportType,
-      Status: r.Status as ReportStatus,
-      Title: r.Title,
-      CategoryId: r.CategoryId,
-      CategoryName: r.Category.Name,
-      Location: r.Location,
-      EventAt: r.EventAt.toISOString(),
-      CreatedAt: r.CreatedAt.toISOString(),
-      UpdatedAt: r.UpdatedAt.toISOString(),
-      ImageUrl: r.Images[0] ? `/uploads/${r.Images[0].FileName}` : undefined
-    }));
-
-    res.json(data);
-  } catch (error) {
-    next(error);
+    res.json(reports.map(toReportSummary));
+  } catch (err) {
+    next(err);
   }
 };
 
 export const myClaims = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = req.user!;
     const claims = await prisma.claim.findMany({
-      where: { ClaimantId: req.user!.Id },
-      include: { Report: true },
-      orderBy: { UpdatedAt: 'desc' }
+      where: { ClaimantId: user.Id },
+      include: { Report: true, Claimant: true },
+      orderBy: { CreatedAt: 'desc' },
     });
-
-    const data: ClaimSummary[] = claims.map(c => ({
-      Id: c.Id,
-      ReportId: c.ReportId,
-      ReportTitle: c.Report.Title,
-      ClaimantId: c.ClaimantId,
-      ClaimantName: req.user!.Name,
-      ProofAnswer: c.ProofAnswer,
-      OwnershipDescription: c.OwnershipDescription,
-      ContactPhone: c.ContactPhone,
-      Status: c.Status as ClaimStatus,
-      DecisionNote: c.DecisionNote,
-      DecidedAt: c.DecidedAt?.toISOString() || null,
-      CreatedAt: c.CreatedAt.toISOString(),
-      UpdatedAt: c.UpdatedAt.toISOString(),
-    }));
-
-    res.json(data);
-  } catch (error) {
-    next(error);
+    res.json(claims.map(toClaimSummary));
+  } catch (err) {
+    next(err);
   }
 };
 
 export const myDashboard = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = req.user!.Id;
+    const user = req.user!;
 
-    const [reports, claims, reportsCount, activeClaimsCount, returnedCount] = await Promise.all([
+    const [reports, claims, returnedCount] = await Promise.all([
       prisma.report.findMany({
-        where: { ReporterId: userId },
-        include: { Category: true, Images: { take: 1 } },
+        where: { ReporterId: user.Id },
+        include: { Category: true, Images: { take: 1 }, Reporter: true },
         orderBy: { UpdatedAt: 'desc' },
-        take: 5
+        take: 5,
       }),
       prisma.claim.findMany({
-        where: { ClaimantId: userId },
-        include: { Report: true },
+        where: { ClaimantId: user.Id },
+        include: { Report: true, Claimant: true },
         orderBy: { UpdatedAt: 'desc' },
-        take: 5
+        take: 5,
       }),
-      prisma.report.count({ where: { ReporterId: userId } }),
-      prisma.claim.count({ where: { ClaimantId: userId, Status: { in: ['PENDING', 'APPROVED'] } } }),
-      prisma.report.count({ where: { ReporterId: userId, Status: 'RETURNED' } })
+      prisma.report.count({
+        where: { ReporterId: user.Id, Status: ReportStatus.RETURNED },
+      }),
     ]);
 
-    const MyReports = reports.map(r => ({
-      Id: r.Id,
-      Type: r.Type as ReportType,
-      Status: r.Status as ReportStatus,
-      Title: r.Title,
-      CategoryId: r.CategoryId,
-      CategoryName: r.Category.Name,
-      Location: r.Location,
-      EventAt: r.EventAt.toISOString(),
-      CreatedAt: r.CreatedAt.toISOString(),
-      UpdatedAt: r.UpdatedAt.toISOString(),
-    }));
+    const allReportsCount = await prisma.report.count({ where: { ReporterId: user.Id } });
+    const activeClaimsCount = await prisma.claim.count({
+      where: { ClaimantId: user.Id, Status: { in: [ClaimStatus.PENDING, ClaimStatus.APPROVED] } },
+    });
 
-    const MyClaims = claims.map(c => ({
-      Id: c.Id,
-      ReportId: c.ReportId,
-      ReportTitle: c.Report.Title,
-      ClaimantId: c.ClaimantId,
-      ClaimantName: req.user!.Name,
-      ProofAnswer: c.ProofAnswer,
-      OwnershipDescription: c.OwnershipDescription,
-      ContactPhone: c.ContactPhone,
-      Status: c.Status as ClaimStatus,
-      DecisionNote: c.DecisionNote,
-      DecidedAt: c.DecidedAt?.toISOString() || null,
-      CreatedAt: c.CreatedAt.toISOString(),
-      UpdatedAt: c.UpdatedAt.toISOString(),
-    }));
-
-    const response: StudentDashboardResponse = {
-      MyReports,
-      MyClaims,
+    res.json({
+      MyReports: reports.map(toReportSummary),
+      MyClaims: claims.map(toClaimSummary),
       Summary: {
-        MyReportsCount: reportsCount,
+        MyReportsCount: allReportsCount,
         ActiveClaimsCount: activeClaimsCount,
-        ReturnedItemsCount: returnedCount
-      }
-    };
-
-    res.json(response);
-  } catch (error) {
-    next(error);
+        ReturnedItemsCount: returnedCount,
+      },
+    });
+  } catch (err) {
+    next(err);
   }
 };

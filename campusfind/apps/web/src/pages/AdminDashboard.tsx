@@ -1,736 +1,661 @@
-import React, { useEffect, useState } from 'react';
-import { 
-  ShieldCheck, 
-  Clock, 
-  Layers, 
-  Handshake, 
-  AlertCircle
-} from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
-import { 
-  AdminDashboardResponse, 
-  Category
-} from '@campusfind/shared';
-import { StatusBadge, TypeBadge } from '../components/StatusBadge';
+import StatusBadge from '../components/StatusBadge';
+import {
+  LayoutDashboard, FileText, Send, Users, Tag, Loader2,
+  AlertCircle, CheckCircle2, XCircle, Eye, ChevronRight,
+  Shield, AlertTriangle, Package, RefreshCw, HandshakeIcon,
+  ArrowRight, ChevronDown
+} from 'lucide-react';
 
-export default function AdminDashboard() {
-  const [data, setData] = useState<AdminDashboardResponse | null>(null);
-  const [allReports, setAllReports] = useState<any[]>([]);
-  const [allClaims, setAllClaims] = useState<any[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
-
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'REPORTS' | 'CLAIMS' | 'HANDOVERS' | 'CATEGORIES' | 'USERS'>('OVERVIEW');
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  
-  // Handover form state
-  const [handoverModal, setHandoverModal] = useState<any | null>(null);
-  const [recipientName, setRecipientName] = useState('');
-  const [handoverLocation, setHandoverLocation] = useState('Pos Satpam Utama');
-  const [handoverNote, setHandoverNote] = useState('');
-
-  // Category form state
-  const [newCatName, setNewCatName] = useState('');
-  const [newCatDesc, setNewCatDesc] = useState('');
-
-  const fetchAllAdminData = async () => {
-    try {
-      const [dashRes, reportsRes, claimsRes, catRes, userRes] = await Promise.all([
-        api.get('/admin/dashboard'),
-        api.get('/admin/reports'),
-        api.get('/admin/claims'),
-        api.get('/admin/categories'),
-        api.get('/admin/users'),
-      ]);
-      setData(dashRes.data);
-      setAllReports(reportsRes.data);
-      setAllClaims(claimsRes.data);
-      setCategories(catRes.data);
-      setUsers(userRes.data);
-    } catch (err) {
-      console.error('Failed to fetch admin data', err);
-    } finally {
-      setLoading(false);
-    }
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface Report {
+  Id: string; Type: string; Status: string; Title: string;
+  CategoryName: string; Location: string; CreatedAt: string;
+  ReporterName: string; ReporterEmail: string; ModeratorNote?: string;
+  Description: string; Brand?: string; Color?: string;
+}
+interface Claim {
+  Id: string; ReportTitle: string; ReportId: string; ClaimantName: string;
+  ClaimantEmail: string; Status: string; ProofAnswer: string;
+  OwnershipDescription: string; ContactPhone: string; DecisionNote?: string;
+  CreatedAt: string;
+}
+interface DashboardData {
+  PendingReports: Report[];
+  PendingClaims: Claim[];
+  Summary: {
+    PendingReportsCount: number; OpenReportsCount: number;
+    PendingClaimsCount: number; ReturnedItemsCount: number;
   };
+}
+interface Category { Id: string; Name: string; Description?: string; IsActive: boolean; }
+interface User { Id: string; Name: string; Email: string; StudentNumber?: string; Role: string; IsActive: boolean; }
+
+type Tab = 'dashboard' | 'reports' | 'claims' | 'handovers' | 'categories' | 'users';
+
+// ─── Admin Dashboard ──────────────────────────────────────────────────────────
+const AdminDashboard: React.FC = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<Tab>('dashboard');
+  const [dashData, setDashData] = useState<DashboardData | null>(null);
+  const [reports, setReports] = useState<{ Data: Report[]; Total: number; TotalPages: number; } | null>(null);
+  const [claims, setClaims] = useState<{ Data: Claim[]; Total: number; TotalPages: number; } | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [users, setUsers] = useState<{ Data: User[]; Total: number; } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Modals state
+  const [verifyModal, setVerifyModal] = useState<{ report: Report; } | null>(null);
+  const [claimModal, setClaimModal] = useState<{ claim: Claim; } | null>(null);
+  const [handoverModal, setHandoverModal] = useState<{ claim: Claim; } | null>(null);
+  const [catModal, setCatModal] = useState<{ cat?: Category; } | null>(null);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalError, setModalError] = useState('');
 
   useEffect(() => {
-    fetchAllAdminData();
+    if (!user || user.Role !== 'ADMIN') { navigate('/'); return; }
+  }, [user, navigate]);
+
+  const fetchDashboard = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await api.get('/admin/dashboard');
+      setDashData(res.data);
+    } catch { setError('Gagal memuat dashboard'); }
+    finally { setLoading(false); }
   }, []);
 
-  // 1. Verify Report (OPEN or REJECTED)
-  const handleVerifyReport = async (reportId: string, status: 'OPEN' | 'REJECTED') => {
-    const note = prompt(`Masukkan catatan verifikasi (opsional) untuk status ${status}:`) || undefined;
-    setActionLoading(true);
+  const fetchReports = useCallback(async () => {
+    setLoading(true); setError('');
     try {
-      await api.patch(`/admin/reports/${reportId}/verify`, {
-        Status: status,
-        ModeratorNote: note
-      });
-      alert(`Laporan berhasil diubah ke status: ${status}`);
-      fetchAllAdminData();
-    } catch (err: any) {
-      alert(err.response?.data?.Message || 'Gagal memverifikasi laporan');
-    } finally {
-      setActionLoading(false);
-    }
+      const res = await api.get('/admin/reports?PageSize=20');
+      setReports(res.data);
+    } catch { setError('Gagal memuat laporan'); }
+    finally { setLoading(false); }
+  }, []);
+
+  const fetchClaims = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await api.get('/admin/claims?PageSize=20');
+      setClaims(res.data);
+    } catch { setError('Gagal memuat klaim'); }
+    finally { setLoading(false); }
+  }, []);
+
+  const fetchCategories = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await api.get('/admin/categories');
+      setCategories(res.data);
+    } catch { setError('Gagal memuat kategori'); }
+    finally { setLoading(false); }
+  }, []);
+
+  const fetchUsers = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await api.get('/admin/users?PageSize=50');
+      setUsers(res.data);
+    } catch { setError('Gagal memuat pengguna'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'dashboard') fetchDashboard();
+    else if (tab === 'reports') fetchReports();
+    else if (tab === 'claims') fetchClaims();
+    else if (tab === 'categories') fetchCategories();
+    else if (tab === 'users') fetchUsers();
+  }, [tab, fetchDashboard, fetchReports, fetchClaims, fetchCategories, fetchUsers]);
+
+  // ─── Verify report ─────────────────────────────────────────────────────────
+  const [verifyForm, setVerifyForm] = useState({ Status: 'OPEN', ModeratorNote: '' });
+  const submitVerify = async () => {
+    if (!verifyModal) return;
+    setModalLoading(true); setModalError('');
+    try {
+      await api.patch(`/admin/reports/${verifyModal.report.Id}/verify`, verifyForm);
+      setVerifyModal(null);
+      fetchDashboard(); if (tab === 'reports') fetchReports();
+    } catch (e: any) { setModalError(e.response?.data?.Message || 'Gagal'); }
+    finally { setModalLoading(false); }
   };
 
-  // 2. Change Report Status (ARCHIVED, RETURNED, etc.)
-  const handleChangeReportStatus = async (reportId: string, nextStatus: string) => {
-    const note = prompt(`Masukkan alasan pengubahan status ke ${nextStatus}:`) || undefined;
-    setActionLoading(true);
+  // ─── Decide claim ──────────────────────────────────────────────────────────
+  const [claimForm, setClaimForm] = useState({ Status: 'APPROVED', DecisionNote: '' });
+  const submitClaim = async () => {
+    if (!claimModal) return;
+    setModalLoading(true); setModalError('');
     try {
-      await api.patch(`/admin/reports/${reportId}/status`, {
-        Status: nextStatus,
-        ModeratorNote: note
-      });
-      alert(`Status laporan berhasil diubah ke ${nextStatus}`);
-      fetchAllAdminData();
-    } catch (err: any) {
-      alert(err.response?.data?.Message || 'Gagal mengubah status');
-    } finally {
-      setActionLoading(false);
-    }
+      await api.patch(`/admin/claims/${claimModal.claim.Id}/decision`, claimForm);
+      setClaimModal(null);
+      fetchDashboard(); if (tab === 'claims') fetchClaims();
+    } catch (e: any) { setModalError(e.response?.data?.Message || 'Gagal'); }
+    finally { setModalLoading(false); }
   };
 
-  // 3. Decide Claim (APPROVED or REJECTED)
-  const handleDecideClaim = async (claimId: string, status: 'APPROVED' | 'REJECTED') => {
-    const note = prompt(`Wajib masukkan catatan keputusan (${status}):`);
-    if (!note) {
-      alert('Catatan keputusan harus diisi.');
-      return;
-    }
-
-    setActionLoading(true);
-    try {
-      await api.patch(`/admin/claims/${claimId}/decision`, {
-        Status: status,
-        DecisionNote: note
-      });
-      alert(`Klaim berhasil di-${status.toLowerCase()}`);
-      fetchAllAdminData();
-    } catch (err: any) {
-      alert(err.response?.data?.Message || 'Gagal memproses klaim');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // 4. Record Handover
-  const handleRecordHandover = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // ─── Record handover ────────────────────────────────────────────────────────
+  const [handoverForm, setHandoverForm] = useState({ RecipientName: '', HandoverLocation: '', Note: '' });
+  const submitHandover = async () => {
     if (!handoverModal) return;
-
-    setActionLoading(true);
+    setModalLoading(true); setModalError('');
     try {
       await api.post('/admin/handovers', {
-        ReportId: handoverModal.ReportId,
-        ClaimId: handoverModal.Id,
-        RecipientName: recipientName,
-        HandoverLocation: handoverLocation,
-        Note: handoverNote
+        ReportId: handoverModal.claim.ReportId,
+        ClaimId: handoverModal.claim.Id,
+        ...handoverForm,
       });
-      alert('Serah terima barang berhasil dicatat! Status laporan menjadi RETURNED.');
       setHandoverModal(null);
-      fetchAllAdminData();
-    } catch (err: any) {
-      alert(err.response?.data?.Message || 'Gagal mencatat serah terima.');
-    } finally {
-      setActionLoading(false);
-    }
+      fetchDashboard(); if (tab === 'claims') fetchClaims();
+    } catch (e: any) { setModalError(e.response?.data?.Message || 'Gagal'); }
+    finally { setModalLoading(false); }
   };
 
-  // 5. Create Category
-  const handleCreateCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCatName.trim()) return;
-
+  // ─── Category CRUD ─────────────────────────────────────────────────────────
+  const [catForm, setCatForm] = useState({ Name: '', Description: '' });
+  const submitCat = async () => {
+    setModalLoading(true); setModalError('');
     try {
-      await api.post('/admin/categories', {
-        Name: newCatName.trim(),
-        Description: newCatDesc.trim() || undefined
-      });
-      setNewCatName('');
-      setNewCatDesc('');
-      alert('Kategori berhasil ditambahkan!');
-      fetchAllAdminData();
-    } catch (err: any) {
-      alert(err.response?.data?.Message || 'Gagal membuat kategori');
-    }
+      if (catModal?.cat) {
+        await api.put(`/admin/categories/${catModal.cat.Id}`, catForm);
+      } else {
+        await api.post('/admin/categories', catForm);
+      }
+      setCatModal(null); fetchCategories();
+    } catch (e: any) { setModalError(e.response?.data?.Message || 'Gagal'); }
+    finally { setModalLoading(false); }
   };
 
-  // 6. Toggle Category Active
-  const handleToggleCategory = async (catId: string, currentActive: boolean) => {
+  const toggleCat = async (cat: Category) => {
     try {
-      await api.patch(`/admin/categories/${catId}/active`, {
-        IsActive: !currentActive
-      });
-      fetchAllAdminData();
-    } catch (err: any) {
-      alert(err.response?.data?.Message || 'Gagal mengubah status kategori');
-    }
+      await api.patch(`/admin/categories/${cat.Id}/active`, { IsActive: !cat.IsActive });
+      fetchCategories();
+    } catch { alert('Gagal mengubah status kategori'); }
   };
 
-  // 7. Toggle User Active
-  const handleToggleUser = async (userId: string, currentActive: boolean) => {
-    if (!window.confirm(`Yakin ingin ${currentActive ? 'menonaktifkan' : 'mengaktifkan'} pengguna ini?`)) return;
+  // ─── Toggle user active ────────────────────────────────────────────────────
+  const toggleUser = async (u: User) => {
+    if (!window.confirm(`${u.IsActive ? 'Nonaktifkan' : 'Aktifkan'} akun ${u.Name}?`)) return;
     try {
-      await api.patch(`/admin/users/${userId}/active`, {
-        IsActive: !currentActive
-      });
-      fetchAllAdminData();
-    } catch (err: any) {
-      alert(err.response?.data?.Message || 'Gagal mengubah status pengguna');
-    }
+      await api.patch(`/admin/users/${u.Id}/active`, { IsActive: !u.IsActive });
+      fetchUsers();
+    } catch { alert('Gagal mengubah status pengguna'); }
   };
 
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-500 mx-auto mb-4"></div>
-        <p className="text-gray-500 text-sm">Memuat dashboard pengelola kampus...</p>
-      </div>
-    );
-  }
-
-  const approvedClaims = allClaims.filter(c => c.Status === 'APPROVED');
+  const TABS: { key: Tab; label: string; icon: any }[] = [
+    { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { key: 'reports', label: 'Laporan', icon: FileText },
+    { key: 'claims', label: 'Klaim', icon: Send },
+    { key: 'categories', label: 'Kategori', icon: Tag },
+    { key: 'users', label: 'Pengguna', icon: Users },
+  ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Admin Header */}
-      <div className="bg-slate-900 rounded-3xl p-8 text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center text-white">
+          <Shield size={20} />
+        </div>
         <div>
-          <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-1">
-            <ShieldCheck size={16} /> Portal Petugas & Admin Kampus
-          </div>
-          <h1 className="text-3xl font-black">Panel Manajemen CampusFind</h1>
-          <p className="text-slate-400 text-sm mt-1 max-w-xl">
-            Verifikasi laporan mahasiswa, proses klaim barang temuan, catat serah terima resmi, dan kelola master data.
-          </p>
+          <h1 className="text-xl font-bold text-gray-900">Panel Admin</h1>
+          <p className="text-sm text-gray-500">CampusFind Management</p>
         </div>
       </div>
 
-      {/* Metric Summary Cards */}
-      {data && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-            <div className="p-3 bg-amber-50 text-amber-600 rounded-xl"><Clock size={24} /></div>
-            <div>
-              <p className="text-xs font-bold text-gray-400 uppercase">Menunggu Verifikasi</p>
-              <p className="text-2xl font-black text-gray-900">{data.Summary.PendingReportsCount}</p>
-            </div>
-          </div>
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
+              tab === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
 
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><Layers size={24} /></div>
-            <div>
-              <p className="text-xs font-bold text-gray-400 uppercase">Laporan Terbuka</p>
-              <p className="text-2xl font-black text-gray-900">{data.Summary.OpenReportsCount}</p>
-            </div>
-          </div>
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4 flex gap-2">
+          <AlertCircle className="text-red-500 shrink-0" size={16} />
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
 
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-            <div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><AlertCircle size={24} /></div>
-            <div>
-              <p className="text-xs font-bold text-gray-400 uppercase">Klaim Menunggu Review</p>
-              <p className="text-2xl font-black text-gray-900">{data.Summary.PendingClaimsCount}</p>
-            </div>
-          </div>
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader2 className="animate-spin text-purple-500" size={32} /></div>
+      ) : (
+        <>
+          {/* ── DASHBOARD TAB ─────────────────────────────────────────────────── */}
+          {tab === 'dashboard' && dashData && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Laporan Pending', value: dashData.Summary.PendingReportsCount, color: 'text-yellow-600', bg: 'bg-yellow-50', icon: AlertTriangle },
+                  { label: 'Laporan Aktif', value: dashData.Summary.OpenReportsCount, color: 'text-blue-600', bg: 'bg-blue-50', icon: Package },
+                  { label: 'Klaim Pending', value: dashData.Summary.PendingClaimsCount, color: 'text-orange-600', bg: 'bg-orange-50', icon: Send },
+                  { label: 'Barang Dikembalikan', value: dashData.Summary.ReturnedItemsCount, color: 'text-green-600', bg: 'bg-green-50', icon: CheckCircle2 },
+                ].map(({ label, value, color, bg, icon: Icon }) => (
+                  <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 ${bg} rounded-xl flex items-center justify-center`}>
+                        <Icon className={color} size={20} />
+                      </div>
+                      <div>
+                        <div className={`text-2xl font-extrabold ${color}`}>{value}</div>
+                        <div className="text-xs text-gray-500">{label}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><Handshake size={24} /></div>
-            <div>
-              <p className="text-xs font-bold text-gray-400 uppercase">Selesai Dikembalikan</p>
-              <p className="text-2xl font-black text-gray-900">{data.Summary.ReturnedItemsCount}</p>
+              {/* Pending reports */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+                <div className="flex items-center justify-between p-5 border-b border-gray-100">
+                  <h2 className="font-semibold text-gray-900">Laporan Menunggu Verifikasi</h2>
+                  <button onClick={() => setTab('reports')} className="text-xs text-purple-600 hover:underline flex items-center gap-0.5">
+                    Lihat semua <ChevronRight size={12} />
+                  </button>
+                </div>
+                {dashData.PendingReports.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500 text-sm">Tidak ada laporan pending</div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {dashData.PendingReports.map(r => (
+                      <div key={r.Id} className="flex items-start gap-3 p-4">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${r.Type === 'LOST' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {r.Type === 'LOST' ? 'Hilang' : 'Temuan'}
+                        </span>
+                        <div className="flex-grow min-w-0">
+                          <p className="text-sm font-medium text-gray-900 line-clamp-1">{r.Title}</p>
+                          <p className="text-xs text-gray-500">{r.ReporterName} · {r.Location}</p>
+                        </div>
+                        <button
+                          onClick={() => { setVerifyModal({ report: r }); setVerifyForm({ Status: 'OPEN', ModeratorNote: '' }); setModalError(''); }}
+                          className="shrink-0 px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                        >
+                          Verifikasi
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Pending claims */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+                <div className="flex items-center justify-between p-5 border-b border-gray-100">
+                  <h2 className="font-semibold text-gray-900">Klaim Menunggu Keputusan</h2>
+                  <button onClick={() => setTab('claims')} className="text-xs text-purple-600 hover:underline flex items-center gap-0.5">
+                    Lihat semua <ChevronRight size={12} />
+                  </button>
+                </div>
+                {dashData.PendingClaims.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500 text-sm">Tidak ada klaim pending</div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {dashData.PendingClaims.map(c => (
+                      <div key={c.Id} className="flex items-start gap-3 p-4">
+                        <div className="flex-grow min-w-0">
+                          <p className="text-sm font-medium text-gray-900 line-clamp-1">{c.ReportTitle}</p>
+                          <p className="text-xs text-gray-500">{c.ClaimantName} · {new Date(c.CreatedAt).toLocaleDateString('id-ID')}</p>
+                        </div>
+                        <button
+                          onClick={() => { setClaimModal({ claim: c }); setClaimForm({ Status: 'APPROVED', DecisionNote: '' }); setModalError(''); }}
+                          className="shrink-0 px-3 py-1.5 text-xs font-medium text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors"
+                        >
+                          Putuskan
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── REPORTS TAB ───────────────────────────────────────────────────── */}
+          {tab === 'reports' && reports && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+              <div className="p-5 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-900">Semua Laporan ({reports.Total})</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Laporan</th>
+                      <th className="px-4 py-3 text-left">Tipe</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                      <th className="px-4 py-3 text-left">Pelapor</th>
+                      <th className="px-4 py-3 text-left">Tanggal</th>
+                      <th className="px-4 py-3 text-left">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {reports.Data.map(r => (
+                      <tr key={r.Id} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-4 py-3 font-medium text-gray-900 max-w-xs"><p className="line-clamp-1">{r.Title}</p><p className="text-xs text-gray-400">{r.Location}</p></td>
+                        <td className="px-4 py-3"><span className={`text-xs font-bold px-2 py-0.5 rounded-full ${r.Type === 'LOST' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{r.Type === 'LOST' ? 'Hilang' : 'Temuan'}</span></td>
+                        <td className="px-4 py-3"><StatusBadge status={r.Status} size="sm" /></td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{r.ReporterName}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{new Date(r.CreatedAt).toLocaleDateString('id-ID')}</td>
+                        <td className="px-4 py-3">
+                          {r.Status === 'PENDING' && (
+                            <button
+                              onClick={() => { setVerifyModal({ report: r }); setVerifyForm({ Status: 'OPEN', ModeratorNote: '' }); setModalError(''); }}
+                              className="px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                            >
+                              Verifikasi
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── CLAIMS TAB ────────────────────────────────────────────────────── */}
+          {tab === 'claims' && claims && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+              <div className="p-5 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-900">Semua Klaim ({claims.Total})</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Laporan</th>
+                      <th className="px-4 py-3 text-left">Pemohon</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                      <th className="px-4 py-3 text-left">Tanggal</th>
+                      <th className="px-4 py-3 text-left">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {claims.Data.map(c => (
+                      <tr key={c.Id} className="hover:bg-gray-50/50">
+                        <td className="px-4 py-3 font-medium text-gray-900 max-w-xs"><p className="line-clamp-1">{c.ReportTitle}</p></td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{c.ClaimantName}<br />{c.ContactPhone}</td>
+                        <td className="px-4 py-3"><StatusBadge status={c.Status} size="sm" /></td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{new Date(c.CreatedAt).toLocaleDateString('id-ID')}</td>
+                        <td className="px-4 py-3 flex gap-1">
+                          {c.Status === 'PENDING' && (
+                            <button
+                              onClick={() => { setClaimModal({ claim: c }); setClaimForm({ Status: 'APPROVED', DecisionNote: '' }); setModalError(''); }}
+                              className="px-3 py-1.5 text-xs font-medium text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors"
+                            >
+                              Putuskan
+                            </button>
+                          )}
+                          {c.Status === 'APPROVED' && (
+                            <button
+                              onClick={() => { setHandoverModal({ claim: c }); setHandoverForm({ RecipientName: '', HandoverLocation: '', Note: '' }); setModalError(''); }}
+                              className="px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors"
+                            >
+                              Handover
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── CATEGORIES TAB ───────────────────────────────────────────────── */}
+          {tab === 'categories' && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+              <div className="flex items-center justify-between p-5 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-900">Kategori ({categories.length})</h2>
+                <button
+                  onClick={() => { setCatModal({}); setCatForm({ Name: '', Description: '' }); setModalError(''); }}
+                  className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+                >
+                  + Tambah
+                </button>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {categories.map(c => (
+                  <div key={c.Id} className="flex items-center justify-between px-5 py-3">
+                    <div>
+                      <span className="font-medium text-sm text-gray-900">{c.Name}</span>
+                      {c.Description && <span className="text-xs text-gray-400 ml-2">{c.Description}</span>}
+                    </div>
+                    <div className="flex gap-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${c.IsActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {c.IsActive ? 'Aktif' : 'Nonaktif'}
+                      </span>
+                      <button
+                        onClick={() => { setCatModal({ cat: c }); setCatForm({ Name: c.Name, Description: c.Description || '' }); setModalError(''); }}
+                        className="text-xs text-gray-500 hover:text-purple-600 px-2 py-0.5 hover:bg-purple-50 rounded-lg transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => toggleCat(c)}
+                        className={`text-xs px-2 py-0.5 rounded-lg transition-colors ${c.IsActive ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
+                      >
+                        {c.IsActive ? 'Nonaktifkan' : 'Aktifkan'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── USERS TAB ─────────────────────────────────────────────────────── */}
+          {tab === 'users' && users && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+              <div className="p-5 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-900">Pengguna ({users.Total})</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Nama</th>
+                      <th className="px-4 py-3 text-left">Email</th>
+                      <th className="px-4 py-3 text-left">NIM</th>
+                      <th className="px-4 py-3 text-left">Peran</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                      <th className="px-4 py-3 text-left">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {users.Data.map(u => (
+                      <tr key={u.Id} className="hover:bg-gray-50/50">
+                        <td className="px-4 py-3 font-medium text-gray-900">{u.Name}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{u.Email}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{u.StudentNumber || '-'}</td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${u.Role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {u.Role}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${u.IsActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {u.IsActive ? 'Aktif' : 'Nonaktif'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => toggleUser(u)}
+                            disabled={u.Id === user?.Id}
+                            className={`text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-30 ${u.IsActive ? 'text-red-600 bg-red-50 hover:bg-red-100' : 'text-green-600 bg-green-50 hover:bg-green-100'}`}
+                          >
+                            {u.IsActive ? 'Nonaktifkan' : 'Aktifkan'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Modals ────────────────────────────────────────────────────────────── */}
+      {/* Verify modal */}
+      {verifyModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <h3 className="font-bold text-lg text-gray-900 mb-1">Verifikasi Laporan</h3>
+            <p className="text-sm text-gray-500 mb-4 line-clamp-1">{verifyModal.report.Title}</p>
+            {modalError && <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 text-sm text-red-600">{modalError}</div>}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Keputusan</label>
+                <select value={verifyForm.Status} onChange={e => setVerifyForm(p => ({ ...p, Status: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 bg-white">
+                  <option value="OPEN">Setujui (OPEN)</option>
+                  <option value="REJECTED">Tolak (REJECTED)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Catatan Admin (opsional)</label>
+                <textarea value={verifyForm.ModeratorNote} onChange={e => setVerifyForm(p => ({ ...p, ModeratorNote: e.target.value }))}
+                  placeholder="Catatan untuk pelapor..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm h-20 resize-none focus:outline-none focus:ring-2 focus:ring-purple-300" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setVerifyModal(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Batal</button>
+              <button onClick={submitVerify} disabled={modalLoading} className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
+                {modalLoading ? 'Memproses...' : 'Simpan'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Admin Tab Navigation */}
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="border-b border-gray-100 flex flex-wrap px-6 pt-3 gap-2 bg-gray-50/50">
-          <button
-            onClick={() => setActiveTab('OVERVIEW')}
-            className={`py-3 px-3 font-bold text-xs sm:text-sm border-b-2 transition ${
-              activeTab === 'OVERVIEW' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Antrean Prioritas
-          </button>
-          <button
-            onClick={() => setActiveTab('REPORTS')}
-            className={`py-3 px-3 font-bold text-xs sm:text-sm border-b-2 transition ${
-              activeTab === 'REPORTS' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Semua Laporan ({allReports.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('CLAIMS')}
-            className={`py-3 px-3 font-bold text-xs sm:text-sm border-b-2 transition ${
-              activeTab === 'CLAIMS' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Semua Klaim ({allClaims.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('HANDOVERS')}
-            className={`py-3 px-3 font-bold text-xs sm:text-sm border-b-2 transition ${
-              activeTab === 'HANDOVERS' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Catat Serah Terima ({approvedClaims.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('CATEGORIES')}
-            className={`py-3 px-3 font-bold text-xs sm:text-sm border-b-2 transition ${
-              activeTab === 'CATEGORIES' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Kategori ({categories.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('USERS')}
-            className={`py-3 px-3 font-bold text-xs sm:text-sm border-b-2 transition ${
-              activeTab === 'USERS' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Pengguna ({users.length})
-          </button>
-        </div>
-
-        {/* TAB 1: OVERVIEW & PENDING QUEUE */}
-        {activeTab === 'OVERVIEW' && (
-          <div className="p-6 space-y-8">
-            {/* Pending Reports Section */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-extrabold text-gray-900 text-lg flex items-center gap-2">
-                  <Clock size={20} className="text-amber-500" />
-                  Laporan Menunggu Verifikasi ({data?.PendingReports.length || 0})
-                </h3>
-              </div>
-
-              {data?.PendingReports.length === 0 ? (
-                <div className="p-8 bg-gray-50 rounded-2xl text-center text-xs text-gray-500">
-                  Tidak ada laporan yang menunggu verifikasi saat ini.
-                </div>
-              ) : (
-                <div className="overflow-x-auto border border-gray-100 rounded-2xl">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50 text-gray-500 uppercase font-bold border-b border-gray-100">
-                      <tr>
-                        <th className="p-3.5">Judul Laporan</th>
-                        <th className="p-3.5">Jenis</th>
-                        <th className="p-3.5">Kategori</th>
-                        <th className="p-3.5">Lokasi</th>
-                        <th className="p-3.5">Tanggal</th>
-                        <th className="p-3.5 text-right">Aksi Verifikasi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 font-medium">
-                      {data?.PendingReports.map((r) => (
-                        <tr key={r.Id} className="hover:bg-gray-50/80">
-                          <td className="p-3.5 font-bold text-gray-900">{r.Title}</td>
-                          <td className="p-3.5"><TypeBadge type={r.Type} size="sm" /></td>
-                          <td className="p-3.5">{r.CategoryName}</td>
-                          <td className="p-3.5">{r.Location}</td>
-                          <td className="p-3.5 text-gray-400">{new Date(r.EventAt).toLocaleDateString('id-ID')}</td>
-                          <td className="p-3.5 text-right space-x-2">
-                            <button
-                              onClick={() => handleVerifyReport(r.Id, 'OPEN')}
-                              disabled={actionLoading}
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm"
-                            >
-                              Setujui (OPEN)
-                            </button>
-                            <button
-                              onClick={() => handleVerifyReport(r.Id, 'REJECTED')}
-                              disabled={actionLoading}
-                              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg"
-                            >
-                              Tolak
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+      {/* Decide claim modal */}
+      {claimModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <h3 className="font-bold text-lg text-gray-900 mb-1">Putuskan Klaim</h3>
+            <p className="text-sm text-gray-500 mb-1">{claimModal.claim.ClaimantName}</p>
+            <p className="text-xs text-gray-400 mb-4 line-clamp-1">Laporan: {claimModal.claim.ReportTitle}</p>
+            <div className="bg-gray-50 rounded-xl p-3 mb-4">
+              <div className="text-xs font-medium text-gray-600 mb-1">Bukti Kepemilikan:</div>
+              <p className="text-xs text-gray-700">{claimModal.claim.ProofAnswer}</p>
+              <div className="text-xs font-medium text-gray-600 mt-2 mb-1">Deskripsi:</div>
+              <p className="text-xs text-gray-700">{claimModal.claim.OwnershipDescription}</p>
+              <div className="text-xs font-medium text-gray-600 mt-2 mb-1">Telepon:</div>
+              <p className="text-xs text-gray-700">{claimModal.claim.ContactPhone}</p>
             </div>
-
-            {/* Pending Claims Section */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-extrabold text-gray-900 text-lg flex items-center gap-2">
-                  <AlertCircle size={20} className="text-purple-500" />
-                  Klaim Kepemilikan Menunggu Putusan ({data?.PendingClaims.length || 0})
-                </h3>
-              </div>
-
-              {data?.PendingClaims.length === 0 ? (
-                <div className="p-8 bg-gray-50 rounded-2xl text-center text-xs text-gray-500">
-                  Tidak ada klaim kepemilikan yang perlu diputuskan saat ini.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {data?.PendingClaims.map((c) => (
-                    <div key={c.Id} className="p-4 border border-gray-100 rounded-2xl bg-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-gray-900 text-sm">{c.ReportTitle}</span>
-                          <span className="text-xs text-gray-400">• Pengaju: <strong className="text-gray-700">{c.ClaimantName}</strong> ({c.ContactPhone})</span>
-                        </div>
-                        <p className="text-xs text-gray-600"><strong className="text-gray-700">Bukti:</strong> {c.ProofAnswer}</p>
-                        <p className="text-xs text-gray-500"><strong className="text-gray-700">Kronologi:</strong> {c.OwnershipDescription}</p>
-                      </div>
-
-                      <div className="flex gap-2 shrink-0">
-                        <button
-                          onClick={() => handleDecideClaim(c.Id, 'APPROVED')}
-                          disabled={actionLoading}
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-sm"
-                        >
-                          Setujui Klaim
-                        </button>
-                        <button
-                          onClick={() => handleDecideClaim(c.Id, 'REJECTED')}
-                          disabled={actionLoading}
-                          className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs"
-                        >
-                          Tolak
-                        </button>
-                      </div>
-                    </div>
+            {modalError && <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 text-sm text-red-600">{modalError}</div>}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Keputusan</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[{ value: 'APPROVED', label: '✅ Setujui' }, { value: 'REJECTED', label: '❌ Tolak' }].map(opt => (
+                    <label key={opt.value} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all text-sm font-medium ${claimForm.Status === opt.value ? 'border-orange-400 bg-orange-50 text-orange-700' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <input type="radio" name="claimStatus" value={opt.value} checked={claimForm.Status === opt.value} onChange={e => setClaimForm(p => ({ ...p, Status: e.target.value }))} className="sr-only" />
+                      {opt.label}
+                    </label>
                   ))}
                 </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: ALL REPORTS */}
-        {activeTab === 'REPORTS' && (
-          <div className="p-6">
-            <div className="overflow-x-auto border border-gray-100 rounded-2xl">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-gray-50 text-gray-500 uppercase font-bold border-b border-gray-100">
-                  <tr>
-                    <th className="p-3.5">Judul</th>
-                    <th className="p-3.5">Jenis</th>
-                    <th className="p-3.5">Kategori</th>
-                    <th className="p-3.5">Pelapor</th>
-                    <th className="p-3.5">Status</th>
-                    <th className="p-3.5">Aksi Kelola</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 font-medium">
-                  {allReports.map((r) => (
-                    <tr key={r.Id} className="hover:bg-gray-50">
-                      <td className="p-3.5 font-bold text-gray-900">{r.Title}</td>
-                      <td className="p-3.5"><TypeBadge type={r.Type} size="sm" /></td>
-                      <td className="p-3.5">{r.Category?.Name || '-'}</td>
-                      <td className="p-3.5">{r.Reporter?.Name || '-'}</td>
-                      <td className="p-3.5"><StatusBadge status={r.Status} size="sm" /></td>
-                      <td className="p-3.5 space-x-1.5">
-                        {r.Status === 'PENDING' && (
-                          <button
-                            onClick={() => handleVerifyReport(r.Id, 'OPEN')}
-                            className="px-2.5 py-1 bg-emerald-600 text-white font-bold rounded-lg text-[11px]"
-                          >
-                            Verifikasi
-                          </button>
-                        )}
-                        {r.Status !== 'ARCHIVED' && (
-                          <button
-                            onClick={() => handleChangeReportStatus(r.Id, 'ARCHIVED')}
-                            className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-[11px]"
-                          >
-                            Arsipkan
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: ALL CLAIMS */}
-        {activeTab === 'CLAIMS' && (
-          <div className="p-6">
-            <div className="overflow-x-auto border border-gray-100 rounded-2xl">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-gray-50 text-gray-500 uppercase font-bold border-b border-gray-100">
-                  <tr>
-                    <th className="p-3.5">Barang</th>
-                    <th className="p-3.5">Pengaju</th>
-                    <th className="p-3.5">Bukti Jawaban</th>
-                    <th className="p-3.5">Status</th>
-                    <th className="p-3.5">Catatan Keputusan</th>
-                    <th className="p-3.5 text-right">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 font-medium">
-                  {allClaims.map((c) => (
-                    <tr key={c.Id} className="hover:bg-gray-50">
-                      <td className="p-3.5 font-bold text-gray-900">{c.Report?.Title || '-'}</td>
-                      <td className="p-3.5">{c.Claimant?.Name || '-'} ({c.ContactPhone})</td>
-                      <td className="p-3.5 max-w-xs truncate">{c.ProofAnswer}</td>
-                      <td className="p-3.5">
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                          c.Status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' :
-                          c.Status === 'PENDING' ? 'bg-amber-100 text-amber-800' :
-                          c.Status === 'COMPLETED' ? 'bg-teal-100 text-teal-800' :
-                          'bg-rose-100 text-rose-800'
-                        }`}>
-                          {c.Status}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-gray-500">{c.DecisionNote || '-'}</td>
-                      <td className="p-3.5 text-right">
-                        {c.Status === 'PENDING' && (
-                          <div className="flex justify-end gap-1.5">
-                            <button
-                              onClick={() => handleDecideClaim(c.Id, 'APPROVED')}
-                              className="px-2.5 py-1 bg-emerald-600 text-white font-bold rounded-lg text-[11px]"
-                            >
-                              Setujui
-                            </button>
-                            <button
-                              onClick={() => handleDecideClaim(c.Id, 'REJECTED')}
-                              className="px-2.5 py-1 bg-rose-100 text-rose-700 font-bold rounded-lg text-[11px]"
-                            >
-                              Tolak
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: HANDOVERS */}
-        {activeTab === 'HANDOVERS' && (
-          <div className="p-6 space-y-6">
-            <div>
-              <h3 className="font-bold text-gray-900 text-base mb-1">Pencatatan Serah Terima Barang</h3>
-              <p className="text-xs text-gray-500">
-                Pilih klaim yang telah disetujui (APPROVED) untuk mencatat bukti penyerahan barang resmi kepada pemiliknya.
-              </p>
-            </div>
-
-            {approvedClaims.length === 0 ? (
-              <div className="p-8 bg-gray-50 rounded-2xl text-center text-xs text-gray-500">
-                Belum ada klaim berstatus APPROVED yang siap diserahterimakan.
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {approvedClaims.map((claim) => (
-                  <div key={claim.Id} className="p-5 border border-gray-100 rounded-2xl bg-white shadow-sm flex flex-col justify-between">
-                    <div>
-                      <div className="flex justify-between items-start mb-2">
-                        <h4 className="font-bold text-gray-900 text-base">{claim.Report?.Title}</h4>
-                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold">Siap Diserahkan</span>
-                      </div>
-                      <p className="text-xs text-gray-600">Penerima: <strong className="text-gray-800">{claim.Claimant?.Name}</strong></p>
-                      <p className="text-xs text-gray-500">No. HP: {claim.ContactPhone}</p>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setHandoverModal(claim);
-                        setRecipientName(claim.Claimant?.Name || '');
-                      }}
-                      className="mt-4 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md transition"
-                    >
-                      Catat Penyerahan Barang
-                    </button>
-                  </div>
-                ))}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Catatan Keputusan *</label>
+                <textarea required value={claimForm.DecisionNote} onChange={e => setClaimForm(p => ({ ...p, DecisionNote: e.target.value }))}
+                  placeholder="Alasan keputusan Anda..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm h-20 resize-none focus:outline-none focus:ring-2 focus:ring-orange-300" />
               </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB 5: CATEGORIES */}
-        {activeTab === 'CATEGORIES' && (
-          <div className="p-6 space-y-8">
-            {/* Create Category */}
-            <form onSubmit={handleCreateCategory} className="p-5 bg-gray-50 rounded-2xl border border-gray-200/60 max-w-xl space-y-3">
-              <h4 className="font-bold text-gray-900 text-sm">Tambah Kategori Baru</h4>
-              <input
-                type="text"
-                required
-                value={newCatName}
-                onChange={(e) => setNewCatName(e.target.value)}
-                placeholder="Nama Kategori (contoh: Pakaian, Kunci)"
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs bg-white focus:outline-none focus:border-emerald-500"
-              />
-              <input
-                type="text"
-                value={newCatDesc}
-                onChange={(e) => setNewCatDesc(e.target.value)}
-                placeholder="Deskripsi singkat (opsional)"
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs bg-white focus:outline-none focus:border-emerald-500"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-sm hover:bg-emerald-700 transition"
-              >
-                Simpan Kategori
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setClaimModal(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Batal</button>
+              <button onClick={submitClaim} disabled={modalLoading || !claimForm.DecisionNote} className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
+                {modalLoading ? 'Memproses...' : 'Simpan'}
               </button>
-            </form>
+            </div>
+          </div>
+        </div>
+      )}
 
-            {/* Category list */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-              {categories.map((cat) => (
-                <div key={cat.Id} className="p-4 border border-gray-100 rounded-2xl bg-white shadow-sm flex justify-between items-center">
-                  <div>
-                    <h5 className="font-bold text-gray-900 text-sm">{cat.Name}</h5>
-                    <span className={`text-[10px] font-bold ${cat.IsActive ? 'text-emerald-600' : 'text-gray-400'}`}>
-                      {cat.IsActive ? 'AKTIF' : 'NONAKTIF'}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => handleToggleCategory(cat.Id, cat.IsActive)}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
-                      cat.IsActive ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
-                    }`}
-                  >
-                    {cat.IsActive ? 'Nonaktifkan' : 'Aktifkan'}
-                  </button>
+      {/* Handover modal */}
+      {handoverModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <h3 className="font-bold text-lg text-gray-900 mb-1">Catat Serah Terima</h3>
+            <p className="text-sm text-gray-500 mb-4">{handoverModal.claim.ReportTitle}</p>
+            {modalError && <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 text-sm text-red-600">{modalError}</div>}
+            <div className="space-y-3">
+              {[
+                { label: 'Nama Penerima *', key: 'RecipientName', placeholder: 'Nama lengkap penerima' },
+                { label: 'Lokasi Serah Terima *', key: 'HandoverLocation', placeholder: 'cth. Ruang Satpam Gedung Utama' },
+                { label: 'Catatan (opsional)', key: 'Note', placeholder: 'Catatan tambahan...' },
+              ].map(({ label, key, placeholder }) => (
+                <div key={key}>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                  <input
+                    type="text"
+                    value={(handoverForm as any)[key]}
+                    onChange={e => setHandoverForm(p => ({ ...p, [key]: e.target.value }))}
+                    placeholder={placeholder}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300"
+                  />
                 </div>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* TAB 6: USERS */}
-        {activeTab === 'USERS' && (
-          <div className="p-6">
-            <div className="overflow-x-auto border border-gray-100 rounded-2xl">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-gray-50 text-gray-500 uppercase font-bold border-b border-gray-100">
-                  <tr>
-                    <th className="p-3.5">Nama Lengkap</th>
-                    <th className="p-3.5">Email</th>
-                    <th className="p-3.5">NIM / NPK</th>
-                    <th className="p-3.5">Peran</th>
-                    <th className="p-3.5">Status Akun</th>
-                    <th className="p-3.5 text-right">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 font-medium">
-                  {users.map((u) => (
-                    <tr key={u.Id} className="hover:bg-gray-50">
-                      <td className="p-3.5 font-bold text-gray-900">{u.Name}</td>
-                      <td className="p-3.5">{u.Email}</td>
-                      <td className="p-3.5 font-mono">{u.StudentNumber || '-'}</td>
-                      <td className="p-3.5">
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                          u.Role === 'ADMIN' ? 'bg-slate-900 text-white' : 'bg-emerald-100 text-emerald-800'
-                        }`}>
-                          {u.Role}
-                        </span>
-                      </td>
-                      <td className="p-3.5">
-                        <span className={`font-bold ${u.IsActive ? 'text-emerald-600' : 'text-rose-500'}`}>
-                          {u.IsActive ? 'Aktif' : 'Dibekukan'}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-right">
-                        <button
-                          onClick={() => handleToggleUser(u.Id, u.IsActive)}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
-                            u.IsActive ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
-                          }`}
-                        >
-                          {u.IsActive ? 'Nonaktifkan' : 'Aktifkan'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setHandoverModal(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Batal</button>
+              <button onClick={submitHandover} disabled={modalLoading || !handoverForm.RecipientName || !handoverForm.HandoverLocation} className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
+                {modalLoading ? 'Memproses...' : 'Catat Serah Terima'}
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Handover Modal Confirmation */}
-      {handoverModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl">
-            <h3 className="text-xl font-black text-gray-900 mb-1">Rekam Serah Terima Barang</h3>
-            <p className="text-xs text-gray-500 mb-4">
-              Barang: <span className="font-bold text-gray-800">{handoverModal.Report?.Title}</span>
-            </p>
-
-            <form onSubmit={handleRecordHandover} className="space-y-4 text-xs">
+      {/* Category modal */}
+      {catModal !== null && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <h3 className="font-bold text-lg text-gray-900 mb-4">{catModal.cat ? 'Edit Kategori' : 'Tambah Kategori'}</h3>
+            {modalError && <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 text-sm text-red-600">{modalError}</div>}
+            <div className="space-y-3">
               <div>
-                <label className="block font-bold text-gray-700 uppercase mb-1">Nama Penerima Barang *</label>
-                <input
-                  type="text"
-                  required
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  className="w-full p-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-emerald-500"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nama *</label>
+                <input type="text" value={catForm.Name} onChange={e => setCatForm(p => ({ ...p, Name: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300" />
               </div>
-
               <div>
-                <label className="block font-bold text-gray-700 uppercase mb-1">Lokasi Serah Terima *</label>
-                <input
-                  type="text"
-                  required
-                  value={handoverLocation}
-                  onChange={(e) => setHandoverLocation(e.target.value)}
-                  className="w-full p-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-emerald-500"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi (opsional)</label>
+                <input type="text" value={catForm.Description} onChange={e => setCatForm(p => ({ ...p, Description: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300" />
               </div>
-
-              <div>
-                <label className="block font-bold text-gray-700 uppercase mb-1">Catatan Tambahan Petugas</label>
-                <textarea
-                  rows={2}
-                  value={handoverNote}
-                  onChange={(e) => setHandoverNote(e.target.value)}
-                  placeholder="Kondisi barang saat diserahkan..."
-                  className="w-full p-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="pt-2 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setHandoverModal(null)}
-                  className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 font-bold rounded-xl"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md"
-                >
-                  {actionLoading ? 'Menyimpan...' : 'Konfirmasi Selesai'}
-                </button>
-              </div>
-            </form>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setCatModal(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Batal</button>
+              <button onClick={submitCat} disabled={modalLoading || !catForm.Name} className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
+                {modalLoading ? 'Memproses...' : 'Simpan'}
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
-}
+};
+
+export default AdminDashboard;

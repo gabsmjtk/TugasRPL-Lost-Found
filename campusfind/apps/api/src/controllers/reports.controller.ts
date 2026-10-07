@@ -1,203 +1,165 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { z } from 'zod';
-import { ReportType, ReportStatus, PaginatedResponse, ReportSummary } from '@campusfind/shared';
+import { ReportType, ReportStatus, ClaimStatus } from '@campusfind/shared';
 
-const getReportsSchema = z.object({
-  Search: z.string().optional(),
-  Type: z.enum(['LOST', 'FOUND']).optional(),
-  CategoryId: z.string().optional(),
-  Location: z.string().optional(),
-  Status: z.nativeEnum(ReportStatus).optional(),
-  DateFrom: z.string().optional(),
-  DateTo: z.string().optional(),
-  Sort: z.enum(['newest', 'oldest']).default('newest'),
-  Page: z.coerce.number().min(1).default(1),
-  PageSize: z.coerce.number().min(1).max(50).default(10),
-});
+function toReportSummary(r: any) {
+  return {
+    Id: r.Id,
+    Type: r.Type,
+    Status: r.Status,
+    Title: r.Title,
+    CategoryId: r.CategoryId,
+    CategoryName: r.Category?.Name ?? '',
+    Location: r.Location,
+    EventAt: r.EventAt.toISOString(),
+    CreatedAt: r.CreatedAt.toISOString(),
+    UpdatedAt: r.UpdatedAt.toISOString(),
+    ReporterId: r.ReporterId,
+    ReporterName: r.Reporter
+      ? r.Reporter.Name.split(' ')[0] + ' ' + (r.Reporter.Name.split(' ')[1]?.[0] ?? '') + '.'
+      : '',
+    ImageUrl: r.Images?.[0] ? `/uploads/${r.Images[0].FileName}` : undefined,
+    Images: r.Images?.map((img: any) => ({
+      Id: img.Id,
+      FileName: img.FileName,
+      FilePath: img.FilePath,
+      MimeType: img.MimeType,
+      SortOrder: img.SortOrder,
+      CreatedAt: img.CreatedAt.toISOString(),
+    })),
+    ModeratorNote: r.ModeratorNote ?? null,
+    Brand: r.Brand ?? null,
+    Color: r.Color ?? null,
+    Description: r.Description,
+    VerifiedAt: r.VerifiedAt?.toISOString() ?? null,
+  };
+}
+
+function toClaimSummary(c: any) {
+  return {
+    Id: c.Id,
+    ReportId: c.ReportId,
+    ReportTitle: c.Report?.Title ?? '',
+    ClaimantId: c.ClaimantId,
+    ClaimantName: c.Claimant?.Name ?? '',
+    ProofAnswer: c.ProofAnswer,
+    OwnershipDescription: c.OwnershipDescription,
+    ContactPhone: c.ContactPhone,
+    Status: c.Status,
+    DecisionNote: c.DecisionNote ?? null,
+    DecidedAt: c.DecidedAt?.toISOString() ?? null,
+    CreatedAt: c.CreatedAt.toISOString(),
+    UpdatedAt: c.UpdatedAt.toISOString(),
+  };
+}
+
+// ── Public reports controller ─────────────────────────────────────────────────
 
 export const getPublicReports = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const query = getReportsSchema.parse(req.query);
+    const {
+      Search, Type, CategoryId, Location, Status,
+      DateFrom, DateTo, Sort = 'newest',
+      Page = '1', PageSize = '10',
+    } = req.query as Record<string, string>;
+
+    const page = Math.max(1, parseInt(Page));
+    const pageSize = Math.min(50, Math.max(1, parseInt(PageSize)));
+    const skip = (page - 1) * pageSize;
 
     const where: any = {
-      Status: {
-        notIn: ['PENDING'] // Public can't see pending
-      }
+      Status: Status
+        ? Status
+        : { in: [ReportStatus.OPEN, ReportStatus.MATCHED, ReportStatus.CLAIMED, ReportStatus.RETURNED] },
     };
 
-    if (query.Status && query.Status !== ReportStatus.PENDING) {
-      where.Status = query.Status;
-    }
-    if (query.Search) {
+    if (Type) where.Type = Type;
+    if (CategoryId) where.CategoryId = CategoryId;
+    if (Location) where.Location = { contains: Location };
+    if (Search) {
       where.OR = [
-        { Title: { contains: query.Search } },
-        { Description: { contains: query.Search } },
-        { Location: { contains: query.Search } },
-        { Category: { Name: { contains: query.Search } } }
+        { Title: { contains: Search } },
+        { Description: { contains: Search } },
+        { Location: { contains: Search } },
+        { Category: { Name: { contains: Search } } },
       ];
     }
-    if (query.Type) where.Type = query.Type;
-    if (query.CategoryId) where.CategoryId = query.CategoryId;
-    if (query.Location) where.Location = { contains: query.Location };
-    if (query.DateFrom || query.DateTo) {
+    if (DateFrom || DateTo) {
       where.EventAt = {};
-      if (query.DateFrom) where.EventAt.gte = new Date(query.DateFrom);
-      if (query.DateTo) where.EventAt.lte = new Date(query.DateTo);
+      if (DateFrom) where.EventAt.gte = new Date(DateFrom);
+      if (DateTo) where.EventAt.lte = new Date(DateTo);
     }
-
-    const skip = (query.Page - 1) * query.PageSize;
 
     const [reports, total] = await Promise.all([
       prisma.report.findMany({
         where,
-        include: {
-          Category: true,
-          Images: {
-            take: 1,
-            orderBy: { SortOrder: 'asc' }
-          }
-        },
-        orderBy: {
-          CreatedAt: query.Sort === 'newest' ? 'desc' : 'asc'
-        },
+        include: { Category: true, Images: { take: 1, orderBy: { SortOrder: 'asc' } }, Reporter: true },
+        orderBy: { CreatedAt: Sort === 'oldest' ? 'asc' : 'desc' },
         skip,
-        take: query.PageSize,
+        take: pageSize,
       }),
-      prisma.report.count({ where })
+      prisma.report.count({ where }),
     ]);
 
-    const data: ReportSummary[] = reports.map(r => ({
-      Id: r.Id,
-      Type: r.Type as ReportType,
-      Status: r.Status as ReportStatus,
-      Title: r.Title,
-      CategoryId: r.CategoryId,
-      CategoryName: r.Category.Name,
-      Location: r.Location,
-      EventAt: r.EventAt.toISOString(),
-      CreatedAt: r.CreatedAt.toISOString(),
-      UpdatedAt: r.UpdatedAt.toISOString(),
-      ImageUrl: r.Images[0] ? `/uploads/${r.Images[0].FileName}` : undefined
-    }));
-
-    const response: PaginatedResponse<ReportSummary> = {
-      Data: data,
+    res.json({
+      Data: reports.map(toReportSummary),
       Total: total,
-      Page: query.Page,
-      PageSize: query.PageSize,
-      TotalPages: Math.ceil(total / query.PageSize)
-    };
-
-    res.json(response);
-  } catch (error) {
-    next(error);
+      Page: page,
+      PageSize: pageSize,
+      TotalPages: Math.ceil(total / pageSize),
+    });
+  } catch (err) {
+    next(err);
   }
 };
 
 export const getReportById = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-
-    const report = await prisma.report.findUnique({
+    const report = await prisma.report.findFirst({
       where: { Id: id },
       include: {
         Category: true,
         Images: { orderBy: { SortOrder: 'asc' } },
-        Reporter: true
-      }
+        Reporter: true,
+      },
     });
 
-    if (!report || report.Status === 'PENDING' || report.Status === 'REJECTED') {
-      return res.status(404).json({ Message: 'Report not found' });
-    }
+    if (!report) return res.status(404).json({ Message: 'Laporan tidak ditemukan' });
 
-    // Get similar reports
     const similar = await prisma.report.findMany({
       where: {
         CategoryId: report.CategoryId,
-        Type: report.Type === 'LOST' ? 'FOUND' : 'LOST',
-        Status: { notIn: ['PENDING', 'ARCHIVED', 'REJECTED'] },
-        Id: { not: report.Id }
+        Type: report.Type === ReportType.LOST ? ReportType.FOUND : ReportType.LOST,
+        Status: { in: [ReportStatus.OPEN, ReportStatus.MATCHED] },
+        Id: { not: report.Id },
       },
-      include: {
-        Category: true,
-        Images: { take: 1, orderBy: { SortOrder: 'asc' } }
-      },
-      orderBy: { EventAt: 'desc' },
-      take: 3
+      include: { Category: true, Images: { take: 1 }, Reporter: true },
+      orderBy: { EventAt: 'asc' },
+      take: 3,
     });
 
-    const reporterName = report.Reporter.Name;
-    const nameParts = reporterName.split(' ');
-    const publicName = nameParts.length > 1 
-      ? `${nameParts[0]} ${nameParts[1].charAt(0)}.` 
-      : nameParts[0];
-
-    const similarReports: ReportSummary[] = similar.map(r => ({
-      Id: r.Id,
-      Type: r.Type as ReportType,
-      Status: r.Status as ReportStatus,
-      Title: r.Title,
-      CategoryId: r.CategoryId,
-      CategoryName: r.Category.Name,
-      Location: r.Location,
-      EventAt: r.EventAt.toISOString(),
-      CreatedAt: r.CreatedAt.toISOString(),
-      UpdatedAt: r.UpdatedAt.toISOString(),
-      ImageUrl: r.Images[0] ? `/uploads/${r.Images[0].FileName}` : undefined
-    }));
-
     const detail = {
-      Id: report.Id,
-      ReporterId: report.ReporterId,
-      ReporterName: publicName,
-      CategoryId: report.CategoryId,
-      CategoryName: report.Category.Name,
-      Type: report.Type as ReportType,
-      Status: report.Status as ReportStatus,
-      Title: report.Title,
-      Brand: report.Brand,
-      Color: report.Color,
-      Description: report.Description,
-      Location: report.Location,
-      EventAt: report.EventAt.toISOString(),
-      VerifiedAt: report.VerifiedAt?.toISOString() || null,
-      ModeratorNote: report.ModeratorNote,
-      CreatedAt: report.CreatedAt.toISOString(),
-      UpdatedAt: report.UpdatedAt.toISOString(),
-      Images: report.Images.map(img => ({
-        Id: img.Id,
-        ReportId: img.ReportId,
-        FileName: img.FileName,
-        FilePath: `/uploads/${img.FileName}`,
-        MimeType: img.MimeType,
-        SortOrder: img.SortOrder,
-        CreatedAt: img.CreatedAt.toISOString()
-      })),
-      SimilarReports: similarReports
+      ...toReportSummary(report),
+      SimilarReports: similar.map(toReportSummary),
     };
 
     res.json(detail);
-  } catch (error) {
-    next(error);
+  } catch (err) {
+    next(err);
   }
 };
 
-export const getPublicStats = async (req: Request, res: Response, next: NextFunction) => {
+export const getPublicStats = async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const [lostCount, foundCount, returnedCount] = await Promise.all([
-      prisma.report.count({ where: { Type: 'LOST', Status: 'OPEN' } }),
-      prisma.report.count({ where: { Type: 'FOUND', Status: 'OPEN' } }),
-      prisma.report.count({ where: { Status: 'RETURNED' } }),
+    const [openLost, openFound, returned] = await Promise.all([
+      prisma.report.count({ where: { Type: ReportType.LOST, Status: ReportStatus.OPEN } }),
+      prisma.report.count({ where: { Type: ReportType.FOUND, Status: ReportStatus.OPEN } }),
+      prisma.report.count({ where: { Status: ReportStatus.RETURNED } }),
     ]);
-
-    res.json({
-      OpenLostCount: lostCount,
-      OpenFoundCount: foundCount,
-      ReturnedCount: returnedCount
-    });
-  } catch (error) {
-    next(error);
+    res.json({ OpenLostReports: openLost, OpenFoundReports: openFound, CompletedHandovers: returned });
+  } catch (err) {
+    next(err);
   }
 };
