@@ -11,7 +11,12 @@ export const dashboard = async (req: Request, res: Response, next: NextFunction)
       prisma.claim.count({ where: { Status: 'PENDING' } }),
       prisma.report.count({ where: { Status: 'RETURNED' } }),
       prisma.report.findMany({ where: { Status: 'PENDING' }, include: { Category: true, Images: { take: 1 } }, take: 10, orderBy: { CreatedAt: 'asc' } }),
-      prisma.claim.findMany({ where: { Status: 'PENDING' }, include: { Report: true }, take: 10, orderBy: { CreatedAt: 'asc' } }),
+      prisma.claim.findMany({
+        where: { Status: 'PENDING' },
+        include: { Report: true, Claimant: true },
+        take: 10,
+        orderBy: { CreatedAt: 'asc' }
+      }),
     ]);
 
     const resPendingReports: ReportSummary[] = pendingReports.map(r => ({
@@ -32,7 +37,7 @@ export const dashboard = async (req: Request, res: Response, next: NextFunction)
       ReportId: c.ReportId,
       ReportTitle: c.Report.Title,
       ClaimantId: c.ClaimantId,
-      ClaimantName: 'Student', // Join with User for actual name if needed
+      ClaimantName: c.Claimant?.Name || 'Mahasiswa',
       ProofAnswer: c.ProofAnswer,
       OwnershipDescription: c.OwnershipDescription,
       ContactPhone: c.ContactPhone,
@@ -59,7 +64,16 @@ export const dashboard = async (req: Request, res: Response, next: NextFunction)
 
 export const listReports = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const reports = await prisma.report.findMany({ include: { Category: true }, orderBy: { CreatedAt: 'desc' } });
+    const reports = await prisma.report.findMany({
+      include: {
+        Category: true,
+        Reporter: {
+          select: { Id: true, Name: true, Email: true, StudentNumber: true }
+        },
+        Images: true
+      },
+      orderBy: { CreatedAt: 'desc' }
+    });
     res.json(reports);
   } catch (error) { next(error); }
 };
@@ -128,7 +142,16 @@ export const changeReportStatus = async (req: Request, res: Response, next: Next
 
 export const listClaims = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const claims = await prisma.claim.findMany({ include: { Report: true, Claimant: true }, orderBy: { CreatedAt: 'desc' } });
+    const { Status } = req.query;
+    const where: any = {};
+    if (Status && typeof Status === 'string') {
+      where.Status = Status;
+    }
+    const claims = await prisma.claim.findMany({
+      where,
+      include: { Report: true, Claimant: true },
+      orderBy: { CreatedAt: 'desc' }
+    });
     res.json(claims);
   } catch (error) { next(error); }
 };

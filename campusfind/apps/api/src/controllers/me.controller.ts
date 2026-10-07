@@ -11,7 +11,9 @@ const createReportSchema = z.object({
   Color: z.string().optional(),
   Description: z.string().min(20, 'Description must be at least 20 characters').max(1000),
   Location: z.string().min(1, 'Location is required'),
-  EventAt: z.string().datetime()
+  EventAt: z.string().refine((val) => !isNaN(Date.parse(val)), {
+    message: 'EventAt must be a valid date',
+  })
 });
 
 const submitClaimSchema = z.object({

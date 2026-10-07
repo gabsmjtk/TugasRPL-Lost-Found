@@ -27,6 +27,12 @@ app.use('/api/categories', categoriesRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/admin', adminRoutes);
 
+// Claim direct route for /api/claims/:id/cancel
+app.post('/api/claims/:id/cancel', (req, res, next) => {
+  req.url = `/claims/${req.params.id}/cancel`;
+  meRoutes(req, res, next);
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });

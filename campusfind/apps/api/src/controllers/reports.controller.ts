@@ -26,7 +26,7 @@ export const getPublicReports = async (req: Request, res: Response, next: NextFu
       }
     };
 
-    if (query.Status) {
+    if (query.Status && query.Status !== ReportStatus.PENDING) {
       where.Status = query.Status;
     }
     if (query.Search) {
@@ -108,7 +108,7 @@ export const getReportById = async (req: Request, res: Response, next: NextFunct
       }
     });
 
-    if (!report || report.Status === 'PENDING') {
+    if (!report || report.Status === 'PENDING' || report.Status === 'REJECTED') {
       return res.status(404).json({ Message: 'Report not found' });
     }
 
@@ -179,6 +179,24 @@ export const getReportById = async (req: Request, res: Response, next: NextFunct
     };
 
     res.json(detail);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicStats = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const [lostCount, foundCount, returnedCount] = await Promise.all([
+      prisma.report.count({ where: { Type: 'LOST', Status: 'OPEN' } }),
+      prisma.report.count({ where: { Type: 'FOUND', Status: 'OPEN' } }),
+      prisma.report.count({ where: { Status: 'RETURNED' } }),
+    ]);
+
+    res.json({
+      OpenLostCount: lostCount,
+      OpenFoundCount: foundCount,
+      ReturnedCount: returnedCount
+    });
   } catch (error) {
     next(error);
   }
