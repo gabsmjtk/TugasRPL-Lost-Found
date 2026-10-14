@@ -54,60 +54,37 @@ function toClaimSummary(c: any) {
   };
 }
 
-// ── Public reports controller ─────────────────────────────────────────────────
+import { searchService } from '../services/search.service';
+import { reportService } from '../services/report.service';
 
 export const getPublicReports = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       Search, Type, CategoryId, Location, Status,
-      DateFrom, DateTo, Sort = 'newest',
+      Sort = 'newest',
       Page = '1', PageSize = '10',
     } = req.query as Record<string, string>;
 
-    const page = Math.max(1, parseInt(Page));
-    const pageSize = Math.min(50, Math.max(1, parseInt(PageSize)));
-    const skip = (page - 1) * pageSize;
+    const page = Math.max(1, parseInt(Page) || 1);
+    const pageSize = Math.min(50, Math.max(1, parseInt(PageSize) || 10));
 
-    const where: any = {
-      Status: Status
-        ? Status
-        : { in: [ReportStatus.OPEN, ReportStatus.MATCHED, ReportStatus.CLAIMED, ReportStatus.RETURNED] },
-    };
-
-    if (Type) where.Type = Type;
-    if (CategoryId) where.CategoryId = CategoryId;
-    if (Location) where.Location = { contains: Location };
-    if (Search) {
-      where.OR = [
-        { Title: { contains: Search } },
-        { Description: { contains: Search } },
-        { Location: { contains: Search } },
-        { Category: { Name: { contains: Search } } },
-      ];
-    }
-    if (DateFrom || DateTo) {
-      where.EventAt = {};
-      if (DateFrom) where.EventAt.gte = new Date(DateFrom);
-      if (DateTo) where.EventAt.lte = new Date(DateTo);
-    }
-
-    const [reports, total] = await Promise.all([
-      prisma.report.findMany({
-        where,
-        include: { Category: true, Images: { take: 1, orderBy: { SortOrder: 'asc' } }, Reporter: true },
-        orderBy: { CreatedAt: Sort === 'oldest' ? 'asc' : 'desc' },
-        skip,
-        take: pageSize,
-      }),
-      prisma.report.count({ where }),
-    ]);
+    const result = await searchService.searchReports({
+      keyword: Search,
+      type: Type as any,
+      categoryId: CategoryId,
+      location: Location,
+      status: Status as any,
+      sort: Sort as 'newest' | 'oldest',
+      page,
+      pageSize,
+    });
 
     res.json({
-      Data: reports.map(toReportSummary),
-      Total: total,
-      Page: page,
-      PageSize: pageSize,
-      TotalPages: Math.ceil(total / pageSize),
+      Data: result.Data.map(toReportSummary),
+      Total: result.Total,
+      Page: result.Page,
+      PageSize: result.PageSize,
+      TotalPages: result.TotalPages,
     });
   } catch (err) {
     next(err);

@@ -53,7 +53,7 @@ const createReportSchema = z.object({
   CategoryId: z.string().min(1, 'Kategori diperlukan'),
   Brand: z.string().optional(),
   Color: z.string().optional(),
-  Description: z.string().min(20, 'Deskripsi minimal 20 karakter').max(1000),
+  Description: z.string().min(1, 'Deskripsi diperlukan').max(1000),
   Location: z.string().min(1, 'Lokasi diperlukan'),
   EventAt: z.string().min(1, 'Tanggal kejadian diperlukan'),
 });
@@ -63,7 +63,7 @@ const updateReportSchema = z.object({
   CategoryId: z.string().optional(),
   Brand: z.string().optional(),
   Color: z.string().optional(),
-  Description: z.string().min(20).max(1000).optional(),
+  Description: z.string().min(1).max(1000).optional(),
   Location: z.string().optional(),
   EventAt: z.string().optional(),
 });
@@ -76,38 +76,22 @@ const claimSchema = z.object({
 
 // ── controllers ───────────────────────────────────────────────────────────────
 
+import { reportService } from '../services/report.service';
+
 export const createReport = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = req.user!;
     const data = createReportSchema.parse(req.body);
     const files = (req.files as Express.Multer.File[]) ?? [];
 
-    const category = await prisma.category.findFirst({
-      where: { Id: data.CategoryId, IsActive: true },
-    });
-    if (!category) return res.status(404).json({ Message: 'Kategori tidak ditemukan' });
-
-    const report = await prisma.report.create({
-      data: {
-        ReporterId: user.Id,
-        CategoryId: data.CategoryId,
-        Type: data.Type,
-        Title: data.Title,
-        Brand: data.Brand,
-        Color: data.Color,
-        Description: data.Description,
-        Location: data.Location,
-        EventAt: new Date(data.EventAt),
-        Images: {
-          create: files.map((f, i) => ({
-            FileName: f.filename,
-            FilePath: f.path,
-            MimeType: f.mimetype,
-            SortOrder: i,
-          })),
-        },
-      },
-      include: { Category: true, Images: true, Reporter: true },
+    const report = await reportService.createReport(user.Id, {
+      ...data,
+      Images: files.map((f, i) => ({
+        FileName: f.filename,
+        FilePath: f.path,
+        MimeType: f.mimetype,
+        SortOrder: i,
+      })),
     });
 
     res.status(201).json(toReportSummary(report));

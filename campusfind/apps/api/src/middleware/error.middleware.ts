@@ -14,5 +14,9 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
     return res.status(400).json({ Message: err.message });
   }
 
+  if (err.statusCode) {
+    return res.status(err.statusCode).json({ Message: err.message });
+  }
+
   res.status(500).json({ Message: 'Internal server error' });
 };

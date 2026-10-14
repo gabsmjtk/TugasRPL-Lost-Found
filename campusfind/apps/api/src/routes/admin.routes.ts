@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware';
 import { 
-  dashboard, listReports, verifyReport, changeReportStatus, 
+  dashboard, listReports, verifyReport, changeReportStatus, deleteReport,
   listClaims, decideClaim, recordHandover, 
   listCategories, createCategory, updateCategory, activateCategory,
   listUsers, activateUser 
@@ -16,6 +16,7 @@ router.get('/dashboard', dashboard);
 router.get('/reports', listReports);
 router.patch('/reports/:id/verify', verifyReport);
 router.patch('/reports/:id/status', changeReportStatus);
+router.delete('/reports/:id', deleteReport);
 
 router.get('/claims', listClaims);
 router.patch('/claims/:id/decision', decideClaim);

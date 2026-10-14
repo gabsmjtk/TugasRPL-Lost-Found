@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { z } from 'zod';
 import { ReportStatus, ClaimStatus } from '@campusfind/shared';
+import { adminService } from '../services/admin.service';
+import { handoverService } from '../services/handover.service';
 
 function toReportSummary(r: any) {
   return {
@@ -166,21 +168,27 @@ export const changeReportStatus = async (req: Request, res: Response, next: Next
     const { id } = req.params;
     const { Status, ModeratorNote } = req.body as { Status: string; ModeratorNote?: string };
 
-    const validStatuses = ['MATCHED', 'CLAIMED', 'RETURNED', 'REJECTED', 'ARCHIVED'];
-    if (!validStatuses.includes(Status))
-      return res.status(400).json({ Message: 'Status tidak valid' });
+    const updated = await adminService.changeReportStatus(
+      admin.Role,
+      admin.Id,
+      id,
+      Status as ReportStatus,
+      ModeratorNote
+    );
 
-    const report = await prisma.report.findUnique({ where: { Id: id } });
-    if (!report) return res.status(404).json({ Message: 'Laporan tidak ditemukan' });
-
-    const updated = await prisma.report.update({
-      where: { Id: id },
-      data: { Status: Status as ReportStatus, ModeratorNote: ModeratorNote ?? report.ModeratorNote },
-      include: { Category: true, Images: { take: 1 }, Reporter: true },
-    });
-
-    await logAudit(admin.Id, 'Report', id, 'CHANGE_STATUS', { Status, ModeratorNote });
     res.json(toReportSummary(updated));
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deleteReport = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const admin = req.user!;
+    const { id } = req.params;
+
+    const result = await adminService.deleteReport(admin.Role, admin.Id, id);
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -221,37 +229,7 @@ export const decideClaim = async (req: Request, res: Response, next: NextFunctio
     const { id } = req.params;
     const { Status, DecisionNote } = req.body as { Status: 'APPROVED' | 'REJECTED'; DecisionNote: string };
 
-    if (!['APPROVED', 'REJECTED'].includes(Status))
-      return res.status(400).json({ Message: 'Status tidak valid' });
-    if (!DecisionNote) return res.status(400).json({ Message: 'Catatan keputusan diperlukan' });
-
-    const claim = await prisma.claim.findUnique({ where: { Id: id } });
-    if (!claim) return res.status(404).json({ Message: 'Klaim tidak ditemukan' });
-    if (claim.Status !== ClaimStatus.PENDING)
-      return res.status(400).json({ Message: 'Hanya klaim pending yang dapat diputuskan' });
-
-    const [updated] = await prisma.$transaction(async (tx) => {
-      const updatedClaim = await tx.claim.update({
-        where: { Id: id },
-        data: {
-          Status: Status as ClaimStatus,
-          DecisionNote,
-          DecidedById: admin.Id,
-          DecidedAt: new Date(),
-        },
-        include: { Report: true, Claimant: true },
-      });
-
-      if (Status === 'APPROVED') {
-        await tx.report.update({
-          where: { Id: claim.ReportId },
-          data: { Status: ReportStatus.CLAIMED },
-        });
-      }
-
-      return [updatedClaim];
-    });
-
+    const updated = await handoverService.decideClaim(admin.Id, id, { Status, DecisionNote });
     await logAudit(admin.Id, 'Claim', id, 'DECIDE', { Status, DecisionNote });
     res.json(toClaimSummary(updated));
   } catch (err) {
@@ -266,30 +244,12 @@ export const recordHandover = async (req: Request, res: Response, next: NextFunc
     const admin = req.user!;
     const { ReportId, ClaimId, RecipientName, HandoverLocation, Note } = req.body;
 
-    if (!ReportId || !ClaimId || !RecipientName || !HandoverLocation)
-      return res.status(400).json({ Message: 'Data handover tidak lengkap' });
-
-    const claim = await prisma.claim.findUnique({ where: { Id: ClaimId } });
-    if (!claim || claim.Status !== ClaimStatus.APPROVED)
-      return res.status(400).json({ Message: 'Klaim harus disetujui terlebih dahulu' });
-
-    const handover = await prisma.$transaction(async (tx) => {
-      const h = await tx.handover.create({
-        data: {
-          ReportId,
-          ClaimId,
-          AdminId: admin.Id,
-          RecipientName,
-          HandoverLocation,
-          HandedOverAt: new Date(),
-          Note: Note ?? null,
-        },
-      });
-
-      await tx.report.update({ where: { Id: ReportId }, data: { Status: ReportStatus.RETURNED } });
-      await tx.claim.update({ where: { Id: ClaimId }, data: { Status: ClaimStatus.COMPLETED } });
-
-      return h;
+    const handover = await handoverService.recordHandover(admin.Id, {
+      ReportId,
+      ClaimId,
+      RecipientName,
+      HandoverLocation,
+      Note,
     });
 
     await logAudit(admin.Id, 'Handover', handover.Id, 'RECORD', { ReportId, ClaimId });
