@@ -25,9 +25,8 @@ const CreateReport: React.FC = () => {
   });
 
   useEffect(() => {
-    if (!user) { navigate('/login'); return; }
     api.get('/categories').then(r => setCategories(r.data)).catch(() => {});
-  }, [user, navigate]);
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setForm(p => ({ ...p, [e.target.name]: e.target.value }));

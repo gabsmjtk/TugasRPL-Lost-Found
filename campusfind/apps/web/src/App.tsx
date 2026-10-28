@@ -13,7 +13,14 @@ import AdminDashboard from './pages/AdminDashboard';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, requireAdmin }: { children: React.ReactNode; requireAdmin?: boolean }) => {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-24">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace />;
   if (requireAdmin && user.Role !== 'ADMIN') return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
