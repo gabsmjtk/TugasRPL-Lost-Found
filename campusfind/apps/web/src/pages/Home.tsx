@@ -5,7 +5,7 @@ import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import {
   Search, MapPin, AlertTriangle, CheckCircle2, PackageCheck,
-  Plus, ArrowRight, ChevronRight, Loader2, FileText
+  ArrowRight, ChevronRight, Loader2, FileText
 } from 'lucide-react';
 
 interface Stats {

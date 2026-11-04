@@ -10,9 +10,10 @@
     "dev": "npm run dev --workspaces",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces",
+    "test": "npm run test --workspaces --if-present",
     "db:start": "docker compose up -d",
     "db:stop": "docker compose down",
-    "db:migrate": "npm run db:migrate --workspace=api",
-    "db:seed": "npm run db:seed --workspace=api"
+    "db:migrate": "npm run db:migrate --workspace=@campusfind/api",
+    "db:seed": "npm run db:seed --workspace=@campusfind/api"
   }
 }

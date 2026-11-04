@@ -1,12 +1,12 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
-
-const secret = process.env.JWT_SECRET || 'rahasia-jwt-super-aman';
-const expiresIn = (process.env.JWT_EXPIRES_IN || '1d') as SignOptions['expiresIn'];
+import { env } from './env';
 
 export const generateToken = (payload: object): string => {
-  return jwt.sign(payload, secret, { expiresIn });
+  return jwt.sign(payload, env.JWT_SECRET, {
+    expiresIn: env.JWT_EXPIRES_IN as SignOptions['expiresIn'],
+  });
 };
 
 export const verifyToken = (token: string): any => {
-  return jwt.verify(token, secret);
+  return jwt.verify(token, env.JWT_SECRET);
 };

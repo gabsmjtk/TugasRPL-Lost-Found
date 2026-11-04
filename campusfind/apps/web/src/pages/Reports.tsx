@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
-import { Search, MapPin, Filter, X, ChevronLeft, ChevronRight, Loader2, FileText, AlertCircle } from 'lucide-react';
+import { Search, MapPin, X, ChevronLeft, ChevronRight, Loader2, FileText, AlertCircle } from 'lucide-react';
 
 interface Category { Id: string; Name: string; }
 interface Report {

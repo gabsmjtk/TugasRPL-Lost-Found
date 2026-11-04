@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
 import { Upload, AlertTriangle, PackageCheck, Loader2, X, CheckCircle2 } from 'lucide-react';
 
 interface Category { Id: string; Name: string; }
 
 const CreateReport: React.FC = () => {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const defaultType = searchParams.get('type') === 'found' ? 'FOUND' : 'LOST';

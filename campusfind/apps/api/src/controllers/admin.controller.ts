@@ -51,8 +51,46 @@ function toClaimSummary(c: any) {
 async function logAudit(actorId: string, entityType: string, entityId: string, action: string, details?: object) {
   await prisma.auditLog.create({
     data: { ActorId: actorId, EntityType: entityType, EntityId: entityId, Action: action, Details: details ? JSON.stringify(details) : null },
-  });
+  }).catch(() => null);
 }
+
+// ── Validation Schemas ────────────────────────────────────────────────────────
+
+const verifyReportSchema = z.object({
+  Status: z.enum(['OPEN', 'REJECTED'], { errorMap: () => ({ message: 'Status tidak valid. Harus OPEN atau REJECTED' }) }),
+  ModeratorNote: z.string().max(1000, 'Catatan moderator maksimal 1000 karakter').optional(),
+});
+
+const changeReportStatusSchema = z.object({
+  Status: z.nativeEnum(ReportStatus, { errorMap: () => ({ message: 'Status laporan tidak valid' }) }),
+  ModeratorNote: z.string().max(1000, 'Catatan moderator maksimal 1000 karakter').optional(),
+});
+
+const decideClaimSchema = z.object({
+  Status: z.enum(['APPROVED', 'REJECTED'], { errorMap: () => ({ message: 'Status keputusan tidak valid. Harus APPROVED atau REJECTED' }) }),
+  DecisionNote: z.string().min(1, 'Catatan keputusan diperlukan').max(1000, 'Catatan keputusan maksimal 1000 karakter'),
+});
+
+const recordHandoverSchema = z.object({
+  ReportId: z.string().min(1, 'ReportId diperlukan'),
+  ClaimId: z.string().min(1, 'ClaimId diperlukan'),
+  RecipientName: z.string().min(1, 'Nama penerima diperlukan').max(200, 'Nama penerima maksimal 200 karakter'),
+  HandoverLocation: z.string().min(1, 'Lokasi serah terima diperlukan').max(200, 'Lokasi serah terima maksimal 200 karakter'),
+  Note: z.string().max(1000, 'Catatan maksimal 1000 karakter').optional(),
+});
+
+const categorySchema = z.object({
+  Name: z.string().min(1, 'Nama kategori diperlukan').max(100, 'Nama kategori maksimal 100 karakter'),
+  Description: z.string().max(500, 'Deskripsi kategori maksimal 500 karakter').optional().nullable(),
+});
+
+const activateCategorySchema = z.object({
+  IsActive: z.boolean({ errorMap: () => ({ message: 'Nilai IsActive harus bertipe boolean' }) }),
+});
+
+const activateUserSchema = z.object({
+  IsActive: z.boolean({ errorMap: () => ({ message: 'Nilai IsActive harus bertipe boolean' }) }),
+});
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
 
@@ -98,8 +136,8 @@ export const dashboard = async (req: Request, res: Response, next: NextFunction)
 export const listReports = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { Search, Status, Type, Page = '1', PageSize = '20' } = req.query as Record<string, string>;
-    const page = Math.max(1, parseInt(Page));
-    const pageSize = Math.min(50, Math.max(1, parseInt(PageSize)));
+    const page = Math.max(1, parseInt(Page) || 1);
+    const pageSize = Math.min(50, Math.max(1, parseInt(PageSize) || 20));
     const skip = (page - 1) * pageSize;
 
     const where: any = {};
@@ -134,10 +172,7 @@ export const verifyReport = async (req: Request, res: Response, next: NextFuncti
   try {
     const admin = req.user!;
     const { id } = req.params;
-    const { Status, ModeratorNote } = req.body as { Status: 'OPEN' | 'REJECTED'; ModeratorNote?: string };
-
-    if (!['OPEN', 'REJECTED'].includes(Status))
-      return res.status(400).json({ Message: 'Status tidak valid' });
+    const { Status, ModeratorNote } = verifyReportSchema.parse(req.body);
 
     const report = await prisma.report.findUnique({ where: { Id: id } });
     if (!report) return res.status(404).json({ Message: 'Laporan tidak ditemukan' });
@@ -166,7 +201,7 @@ export const changeReportStatus = async (req: Request, res: Response, next: Next
   try {
     const admin = req.user!;
     const { id } = req.params;
-    const { Status, ModeratorNote } = req.body as { Status: string; ModeratorNote?: string };
+    const { Status, ModeratorNote } = changeReportStatusSchema.parse(req.body);
 
     const updated = await adminService.changeReportStatus(
       admin.Role,
@@ -199,8 +234,8 @@ export const deleteReport = async (req: Request, res: Response, next: NextFuncti
 export const listClaims = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { Status, Page = '1', PageSize = '20' } = req.query as Record<string, string>;
-    const page = Math.max(1, parseInt(Page));
-    const pageSize = Math.min(50, Math.max(1, parseInt(PageSize)));
+    const page = Math.max(1, parseInt(Page) || 1);
+    const pageSize = Math.min(50, Math.max(1, parseInt(PageSize) || 20));
     const skip = (page - 1) * pageSize;
 
     const where: any = {};
@@ -227,7 +262,7 @@ export const decideClaim = async (req: Request, res: Response, next: NextFunctio
   try {
     const admin = req.user!;
     const { id } = req.params;
-    const { Status, DecisionNote } = req.body as { Status: 'APPROVED' | 'REJECTED'; DecisionNote: string };
+    const { Status, DecisionNote } = decideClaimSchema.parse(req.body);
 
     const updated = await handoverService.decideClaim(admin.Id, id, { Status, DecisionNote });
     await logAudit(admin.Id, 'Claim', id, 'DECIDE', { Status, DecisionNote });
@@ -242,17 +277,17 @@ export const decideClaim = async (req: Request, res: Response, next: NextFunctio
 export const recordHandover = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const admin = req.user!;
-    const { ReportId, ClaimId, RecipientName, HandoverLocation, Note } = req.body;
+    const data = recordHandoverSchema.parse(req.body);
 
     const handover = await handoverService.recordHandover(admin.Id, {
-      ReportId,
-      ClaimId,
-      RecipientName,
-      HandoverLocation,
-      Note,
+      ReportId: data.ReportId,
+      ClaimId: data.ClaimId,
+      RecipientName: data.RecipientName,
+      HandoverLocation: data.HandoverLocation,
+      Note: data.Note,
     });
 
-    await logAudit(admin.Id, 'Handover', handover.Id, 'RECORD', { ReportId, ClaimId });
+    await logAudit(admin.Id, 'Handover', handover.Id, 'RECORD', { ReportId: data.ReportId, ClaimId: data.ClaimId });
 
     res.status(201).json({
       Id: handover.Id,
@@ -284,13 +319,12 @@ export const listCategories = async (_req: Request, res: Response, next: NextFun
 
 export const createCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { Name, Description } = req.body;
-    if (!Name) return res.status(400).json({ Message: 'Nama kategori diperlukan' });
+    const data = categorySchema.parse(req.body);
 
-    const existing = await prisma.category.findUnique({ where: { Name } });
+    const existing = await prisma.category.findUnique({ where: { Name: data.Name } });
     if (existing) return res.status(400).json({ Message: 'Nama kategori sudah ada' });
 
-    const cat = await prisma.category.create({ data: { Name, Description: Description ?? null } });
+    const cat = await prisma.category.create({ data: { Name: data.Name, Description: data.Description ?? null } });
     res.status(201).json({ ...cat, CreatedAt: cat.CreatedAt.toISOString(), UpdatedAt: cat.UpdatedAt.toISOString() });
   } catch (err) {
     next(err);
@@ -300,11 +334,11 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
 export const updateCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { Name, Description } = req.body;
+    const data = categorySchema.parse(req.body);
 
     const cat = await prisma.category.update({
       where: { Id: id },
-      data: { Name, Description: Description ?? null },
+      data: { Name: data.Name, Description: data.Description ?? null },
     });
     res.json({ ...cat, CreatedAt: cat.CreatedAt.toISOString(), UpdatedAt: cat.UpdatedAt.toISOString() });
   } catch (err) {
@@ -315,9 +349,9 @@ export const updateCategory = async (req: Request, res: Response, next: NextFunc
 export const activateCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { IsActive } = req.body;
+    const { IsActive } = activateCategorySchema.parse(req.body);
 
-    const cat = await prisma.category.update({ where: { Id: id }, data: { IsActive: Boolean(IsActive) } });
+    const cat = await prisma.category.update({ where: { Id: id }, data: { IsActive } });
     res.json({ ...cat, CreatedAt: cat.CreatedAt.toISOString(), UpdatedAt: cat.UpdatedAt.toISOString() });
   } catch (err) {
     next(err);
@@ -329,8 +363,8 @@ export const activateCategory = async (req: Request, res: Response, next: NextFu
 export const listUsers = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { Search, Role, Page = '1', PageSize = '20' } = req.query as Record<string, string>;
-    const page = Math.max(1, parseInt(Page));
-    const pageSize = Math.min(50, Math.max(1, parseInt(PageSize)));
+    const page = Math.max(1, parseInt(Page) || 1);
+    const pageSize = Math.min(50, Math.max(1, parseInt(PageSize) || 20));
     const skip = (page - 1) * pageSize;
 
     const where: any = {};
@@ -367,11 +401,16 @@ export const activateUser = async (req: Request, res: Response, next: NextFuncti
   try {
     const admin = req.user!;
     const { id } = req.params;
-    const { IsActive } = req.body;
+    const { IsActive } = activateUserSchema.parse(req.body);
+
+    // Keamanan: Admin dilarang menonaktifkan akunnya sendiri agar tidak terjadi lockout
+    if (admin.Id === id && !IsActive) {
+      return res.status(400).json({ Message: 'Anda tidak dapat menonaktifkan akun admin Anda sendiri' });
+    }
 
     const user = await prisma.user.update({
       where: { Id: id },
-      data: { IsActive: Boolean(IsActive) },
+      data: { IsActive },
       select: { Id: true, Name: true, Email: true, StudentNumber: true, Role: true, IsActive: true, CreatedAt: true, UpdatedAt: true },
     });
 

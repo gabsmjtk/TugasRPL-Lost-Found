@@ -105,6 +105,15 @@ export const getReportById = async (req: Request, res: Response, next: NextFunct
 
     if (!report) return res.status(404).json({ Message: 'Laporan tidak ditemukan' });
 
+    // Keamanan: Laporan berstatus PENDING atau REJECTED hanya boleh dilihat oleh pelapor sendiri atau Admin
+    const isOwner = req.user && req.user.Id === report.ReporterId;
+    const isAdmin = req.user && req.user.Role === 'ADMIN';
+    if ([ReportStatus.PENDING, ReportStatus.REJECTED].includes(report.Status as ReportStatus)) {
+      if (!isOwner && !isAdmin) {
+        return res.status(404).json({ Message: 'Laporan tidak ditemukan' });
+      }
+    }
+
     const similar = await prisma.report.findMany({
       where: {
         CategoryId: report.CategoryId,

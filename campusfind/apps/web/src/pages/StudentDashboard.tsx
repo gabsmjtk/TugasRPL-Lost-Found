@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import {
-  FileText, Send, RotateCcw, Plus, LayoutDashboard,
+  FileText, Send, RotateCcw, Plus,
   Loader2, AlertCircle, ChevronRight, MapPin, Calendar, AlertTriangle, PackageCheck
 } from 'lucide-react';
 
