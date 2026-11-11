@@ -3,8 +3,8 @@
     "target": "ES2022",
     "module": "CommonJS",
     "outDir": "./dist",
-    "noImplicitAny": false,
-    "strict": false,
+    "rootDir": "./src",
+    "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -12,15 +12,12 @@
     "baseUrl": ".",
     "paths": {
       "@campusfind/shared": [
-        "../../packages/shared/src/index.ts",
-        "../../packages/shared/src",
-        "../../packages/shared"
+        "../../packages/shared/dist/index.d.ts",
+        "../../node_modules/@campusfind/shared/dist/index.d.ts"
       ]
     }
   },
   "include": [
-    "src/**/*",
-    "../../packages/shared/src/**/*",
-    "../../packages/shared/src/*"
+    "src/**/*"
   ]
 }

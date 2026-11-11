@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma';
-import { ReportStatus, ReportType } from '../../../../packages/shared/src';
+import { ReportStatus, ReportType } from '@campusfind/shared';
 
 export interface SearchFilterParams {
   keyword?: string;

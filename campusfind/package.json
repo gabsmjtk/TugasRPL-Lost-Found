@@ -8,7 +8,8 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspaces",
-    "build": "npm run build --workspaces",
+    "build:shared": "npm run build --workspace=@campusfind/shared",
+    "build": "npm run build:shared && npm run build --workspaces",
     "lint": "npm run lint --workspaces",
     "db:start": "docker compose up -d",
     "db:stop": "docker compose down",

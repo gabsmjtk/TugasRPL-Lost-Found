@@ -1,21 +1,30 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
-const uploadDir = path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
+function getUploadDir(): string {
+  const dir = process.env.VERCEL
+    ? path.join('/tmp', 'uploads')
+    : path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
 
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch (err) {
+    console.warn('Tidak bisa membuat folder upload:', err);
+  }
+  return dir;
 }
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
+  destination: (_req, _file, cb) => {
+    cb(null, getUploadDir());
   },
-  filename: (req, file, cb) => {
+  filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname);
-    cb(null, `${uuidv4()}${ext}`);
+    cb(null, `${crypto.randomUUID()}${ext}`);
   },
 });
 

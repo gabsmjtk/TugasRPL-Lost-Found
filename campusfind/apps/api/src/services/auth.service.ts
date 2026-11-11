@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../utils/prisma';
 import { generateToken } from '../utils/jwt';
-import { Role } from '../../../../packages/shared/src';
+import { Role } from '@campusfind/shared';
 import { BadRequestError, UnauthorizedError } from '../utils/errors';
 
 export interface LoginDTO {

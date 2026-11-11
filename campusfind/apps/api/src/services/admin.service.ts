@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma';
-import { ReportStatus, Role } from '../../../../packages/shared/src';
+import { ReportStatus, Role } from '@campusfind/shared';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors';
 
 export class AdminService {
