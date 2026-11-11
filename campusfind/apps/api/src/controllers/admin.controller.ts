@@ -276,7 +276,7 @@ export const recordHandover = async (req: Request, res: Response, next: NextFunc
 export const listCategories = async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const cats = await prisma.category.findMany({ orderBy: { Name: 'asc' } });
-    res.json(cats.map(c => ({ ...c, CreatedAt: c.CreatedAt.toISOString(), UpdatedAt: c.UpdatedAt.toISOString() })));
+    res.json(cats.map((c: any) => ({ ...c, CreatedAt: c.CreatedAt.toISOString(), UpdatedAt: c.UpdatedAt.toISOString() })));
   } catch (err) {
     next(err);
   }
@@ -355,7 +355,7 @@ export const listUsers = async (req: Request, res: Response, next: NextFunction)
     ]);
 
     res.json({
-      Data: users.map(u => ({ ...u, CreatedAt: u.CreatedAt.toISOString(), UpdatedAt: u.UpdatedAt.toISOString() })),
+      Data: users.map((u: any) => ({ ...u, CreatedAt: u.CreatedAt.toISOString(), UpdatedAt: u.UpdatedAt.toISOString() })),
       Total: total, Page: page, PageSize: pageSize, TotalPages: Math.ceil(total / pageSize),
     });
   } catch (err) {

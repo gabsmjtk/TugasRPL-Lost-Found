@@ -92,7 +92,7 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
         MimeType: f.mimetype,
         SortOrder: i,
       })),
-    });
+    } as any);
 
     res.status(201).json(toReportSummary(report));
   } catch (err) {

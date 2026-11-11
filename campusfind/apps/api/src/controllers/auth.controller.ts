@@ -21,7 +21,7 @@ const loginSchema = z.object({
 export const register = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = registerSchema.parse(req.body);
-    await authService.register(data);
+    await authService.register(data as any);
     res.status(201).json({ Message: 'Registration successful' });
   } catch (error) {
     next(error);
@@ -31,7 +31,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 export const login = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = loginSchema.parse(req.body);
-    const result = await authService.login(data);
+    const result = await authService.login(data as any);
     res.json(result);
   } catch (error) {
     next(error);

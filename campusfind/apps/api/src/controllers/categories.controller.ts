@@ -7,7 +7,7 @@ export const getCategories = async (_req: Request, res: Response, next: NextFunc
       where: { IsActive: true },
       orderBy: { Name: 'asc' },
     });
-    res.json(categories.map(c => ({
+    res.json(categories.map((c: any) => ({
       ...c,
       CreatedAt: c.CreatedAt.toISOString(),
       UpdatedAt: c.UpdatedAt.toISOString(),
