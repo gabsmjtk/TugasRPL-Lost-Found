@@ -3,10 +3,17 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 
-const uploadDir = path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
+// Di Vercel filesystem read-only; hanya /tmp yang bisa ditulis (sementara, hilang saat instance mati).
+const uploadDir = process.env.VERCEL
+  ? path.join('/tmp', 'uploads')
+  : path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
 
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+try {
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+} catch (err) {
+  console.warn('Tidak bisa membuat folder upload:', err);
 }
 
 const storage = multer.diskStorage({
