@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwt';
-import { UserSummary } from '@campusfind/shared';
+import { UserSummary } from '../../../../packages/shared/src';
 
 declare global {
   namespace Express {

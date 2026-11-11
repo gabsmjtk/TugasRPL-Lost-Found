@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma';
-import { ReportType, ReportStatus } from '@campusfind/shared';
+import { ReportType, ReportStatus } from '../../../../packages/shared/src';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 
 export interface CreateReportDTO {

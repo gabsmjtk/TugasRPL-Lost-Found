@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma';
-import { ClaimStatus, ReportStatus } from '@campusfind/shared';
+import { ClaimStatus, ReportStatus } from '../../../../packages/shared/src';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 
 export interface DecideClaimDTO {

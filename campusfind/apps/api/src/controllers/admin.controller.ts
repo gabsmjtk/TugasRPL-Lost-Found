@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { z } from 'zod';
-import { ReportStatus, ClaimStatus } from '@campusfind/shared';
+import { ReportStatus, ClaimStatus } from '../../../../packages/shared/src';
 import { adminService } from '../services/admin.service';
 import { handoverService } from '../services/handover.service';
 
