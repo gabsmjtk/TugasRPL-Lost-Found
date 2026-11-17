@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import { getImageUrl } from '../utils/imageUrl';
 import { useAuth } from '../contexts/AuthContext';
 import StatusBadge from '../components/StatusBadge';
 import {
@@ -98,7 +99,7 @@ const ReportDetail: React.FC = () => {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="aspect-video bg-gray-100 relative">
                 <img
-                  src={`http://localhost:3001/uploads/${report.Images[selectedImg]?.FileName}`}
+                  src={getImageUrl(report.Images[selectedImg]?.FileName)}
                   alt={report.Title}
                   className="w-full h-full object-contain"
                 />
@@ -111,7 +112,7 @@ const ReportDetail: React.FC = () => {
                       onClick={() => setSelectedImg(i)}
                       className={`w-16 h-16 rounded-lg overflow-hidden border-2 transition-colors ${i === selectedImg ? 'border-emerald-500' : 'border-transparent'}`}
                     >
-                      <img src={`http://localhost:3001/uploads/${img.FileName}`} alt="" className="w-full h-full object-cover" />
+                      <img src={getImageUrl(img.FileName)} alt="" className="w-full h-full object-cover" />
                     </button>
                   ))}
                 </div>

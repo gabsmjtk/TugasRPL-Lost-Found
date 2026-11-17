@@ -1,7 +1,14 @@
 import axios from 'axios';
 
+// Gunakan VITE_API_URL dari environment variable dengan fallback backend production
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'https://campusfind-api-one.vercel.app/api';
+
+// Base URL backend untuk aset / file uploads statis (tanpa suffix /api)
+export const BACKEND_URL = API_BASE_URL.replace(/\/api\/?$/, '');
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api',
+  baseURL: API_BASE_URL,
 });
 
 api.interceptors.request.use((config) => {

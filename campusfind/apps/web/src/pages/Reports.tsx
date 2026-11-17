@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
+import { getImageUrl } from '../utils/imageUrl';
 import StatusBadge from '../components/StatusBadge';
 import { Search, MapPin, Filter, X, ChevronLeft, ChevronRight, Loader2, FileText, AlertCircle } from 'lucide-react';
 
@@ -176,7 +177,7 @@ const Reports: React.FC = () => {
                 {r.ImageUrl ? (
                   <div className="h-40 bg-gray-100 overflow-hidden">
                     <img
-                      src={`http://localhost:3001${r.ImageUrl}`}
+                      src={getImageUrl(r.ImageUrl)}
                       alt={r.Title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
