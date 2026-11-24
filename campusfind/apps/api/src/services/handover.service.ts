@@ -38,7 +38,28 @@ export class HandoverService {
       throw new BadRequestError('Hanya klaim pending yang dapat diputuskan');
     }
 
-    const updatedClaim = await prisma.claim.update({
+    // US-04 AC 1: Status barang berubah menjadi CLAIMED saat klaim berhasil disetujui (Atomic transaction)
+    if (data.Status === 'APPROVED') {
+      const [updatedClaim] = await prisma.$transaction([
+        prisma.claim.update({
+          where: { Id: claimId },
+          data: {
+            Status: data.Status as ClaimStatus,
+            DecisionNote: data.DecisionNote,
+            DecidedById: adminId,
+            DecidedAt: new Date(),
+          },
+          include: { Report: true, Claimant: true },
+        }),
+        prisma.report.update({
+          where: { Id: claim.ReportId },
+          data: { Status: ReportStatus.CLAIMED },
+        }),
+      ]);
+      return updatedClaim;
+    }
+
+    return await prisma.claim.update({
       where: { Id: claimId },
       data: {
         Status: data.Status as ClaimStatus,
@@ -48,16 +69,6 @@ export class HandoverService {
       },
       include: { Report: true, Claimant: true },
     });
-
-    // US-04 AC 1: Status barang berubah menjadi CLAIMED saat klaim berhasil disetujui
-    if (data.Status === 'APPROVED') {
-      await prisma.report.update({
-        where: { Id: claim.ReportId },
-        data: { Status: ReportStatus.CLAIMED },
-      });
-    }
-
-    return updatedClaim;
   }
 
   // US-04 AC 2: Proses handover barang (Hanya laporan dengan status valid yang dapat diproses handover-nya)
@@ -72,6 +83,11 @@ export class HandoverService {
 
     if (!claim) {
       throw new NotFoundError('Klaim tidak ditemukan');
+    }
+
+    // Validasi integritas: pastikan claim adalah milik report yang dikirimkan
+    if (claim.ReportId !== data.ReportId) {
+      throw new BadRequestError('Klaim tidak cocok dengan laporan yang diserahkan');
     }
 
     if (claim.Status !== ClaimStatus.APPROVED) {
@@ -97,28 +113,28 @@ export class HandoverService {
       throw new BadRequestError('Status laporan tidak valid untuk diproses handover');
     }
 
-    const handover = await prisma.handover.create({
-      data: {
-        ReportId: data.ReportId,
-        ClaimId: data.ClaimId,
-        AdminId: adminId,
-        RecipientName: data.RecipientName,
-        HandoverLocation: data.HandoverLocation,
-        HandedOverAt: new Date(),
-        Note: data.Note ?? null,
-      },
-    });
-
-    // Update status report menjadi RETURNED dan claim menjadi COMPLETED
-    await prisma.report.update({
-      where: { Id: data.ReportId },
-      data: { Status: ReportStatus.RETURNED },
-    });
-
-    await prisma.claim.update({
-      where: { Id: data.ClaimId },
-      data: { Status: ClaimStatus.COMPLETED },
-    });
+    // Eksekusi atomik: pencatatan handover dan update status report & claim dalam satu transaksi
+    const [handover] = await prisma.$transaction([
+      prisma.handover.create({
+        data: {
+          ReportId: data.ReportId,
+          ClaimId: data.ClaimId,
+          AdminId: adminId,
+          RecipientName: data.RecipientName,
+          HandoverLocation: data.HandoverLocation,
+          HandedOverAt: new Date(),
+          Note: data.Note ?? null,
+        },
+      }),
+      prisma.report.update({
+        where: { Id: data.ReportId },
+        data: { Status: ReportStatus.RETURNED },
+      }),
+      prisma.claim.update({
+        where: { Id: data.ClaimId },
+        data: { Status: ClaimStatus.COMPLETED },
+      }),
+    ]);
 
     return handover;
   }

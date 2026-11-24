@@ -16,6 +16,12 @@ jest.mock('../src/utils/prisma', () => ({
     handover: {
       create: jest.fn(),
     },
+    $transaction: jest.fn(async (ops: any) => {
+      if (Array.isArray(ops)) {
+        return Promise.all(ops);
+      }
+      return ops;
+    }),
   },
 }));
 
@@ -177,7 +183,27 @@ describe('US-04: Proses Handover / Klaim Barang (HandoverService)', () => {
         where: { Id: 'clm-valid-01' },
         data: { Status: ClaimStatus.COMPLETED },
       });
+      expect(prisma.$transaction).toHaveBeenCalled();
       expect(result.Id).toBe('hnd-001');
+    });
+
+    it('harus menolak handover jika ClaimId bukan milik ReportId yang dikirim', async () => {
+      const mockApprovedClaim = {
+        Id: 'clm-mismatch',
+        ReportId: 'rep-original',
+        Status: ClaimStatus.APPROVED,
+      };
+
+      (prisma.claim.findUnique as jest.Mock).mockResolvedValue(mockApprovedClaim);
+
+      await expect(
+        handoverService.recordHandover('adm-01', {
+          ReportId: 'rep-different',
+          ClaimId: 'clm-mismatch',
+          RecipientName: 'Budi',
+          HandoverLocation: 'Gedung A',
+        })
+      ).rejects.toThrow('Klaim tidak cocok dengan laporan yang diserahkan');
     });
 
     it('harus menolak proses handover jika status laporan tidak valid (misal: RETURNED atau REJECTED)', async () => {
