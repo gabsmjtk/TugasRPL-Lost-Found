@@ -20,9 +20,18 @@ export class SearchService {
 
     const where: any = {};
 
-    // US-03 AC 2: Filter barang berdasarkan status
-    if (params.status) {
-      where.Status = params.status;
+    const publicStatuses: ReportStatus[] = [
+      ReportStatus.OPEN,
+      ReportStatus.MATCHED,
+      ReportStatus.CLAIMED,
+      ReportStatus.RETURNED,
+    ];
+
+    // US-03 AC 2: Filter barang publik hanya untuk status yang diizinkan
+    if (params.status && publicStatuses.includes(params.status as ReportStatus)) {
+      where.Status = params.status as ReportStatus;
+    } else {
+      where.Status = { in: publicStatuses };
     }
 
     // US-03 AC 2: Filter barang berdasarkan category
