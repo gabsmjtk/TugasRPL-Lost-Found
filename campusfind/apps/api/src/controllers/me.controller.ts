@@ -140,8 +140,21 @@ export const deleteReport = async (req: Request, res: Response, next: NextFuncti
     if (![ReportStatus.PENDING, ReportStatus.OPEN].includes(report.Status as ReportStatus))
       return res.status(400).json({ Message: 'Laporan tidak dapat dihapus pada status ini' });
 
-    await prisma.reportImage.deleteMany({ where: { ReportId: id } });
-    await prisma.report.delete({ where: { Id: id } });
+    // Validasi dependensi relasi Claim dan Handover
+    const existingClaim = await prisma.claim.findFirst({ where: { ReportId: id } });
+    if (existingClaim) {
+      return res.status(400).json({ Message: 'Laporan tidak dapat dihapus karena sudah memiliki klaim terkait' });
+    }
+
+    const existingHandover = await prisma.handover.findFirst({ where: { ReportId: id } });
+    if (existingHandover) {
+      return res.status(400).json({ Message: 'Laporan tidak dapat dihapus karena memiliki riwayat serah terima' });
+    }
+
+    await prisma.$transaction([
+      prisma.reportImage.deleteMany({ where: { ReportId: id } }),
+      prisma.report.delete({ where: { Id: id } }),
+    ]);
 
     res.json({ Message: 'Laporan berhasil dihapus' });
   } catch (err) {

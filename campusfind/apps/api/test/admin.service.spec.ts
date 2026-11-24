@@ -13,6 +13,16 @@ jest.mock('../src/utils/prisma', () => ({
     reportImage: {
       deleteMany: jest.fn(),
     },
+    claim: {
+      findFirst: jest.fn(),
+    },
+    handover: {
+      findFirst: jest.fn(),
+    },
+    $transaction: jest.fn(async (ops: any) => {
+      if (Array.isArray(ops)) return Promise.all(ops);
+      return ops;
+    }),
     auditLog: {
       create: jest.fn().mockResolvedValue({}),
     },
@@ -65,6 +75,8 @@ describe('US-05: Validasi Admin / Moderasi (AdminService)', () => {
 
     it('harus mengizinkan Admin untuk menghapus laporan', async () => {
       (prisma.report.findUnique as jest.Mock).mockResolvedValue(mockReport);
+      (prisma.claim.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.handover.findFirst as jest.Mock).mockResolvedValue(null);
       (prisma.reportImage.deleteMany as jest.Mock).mockResolvedValue({ count: 1 });
       (prisma.report.delete as jest.Mock).mockResolvedValue(mockReport);
 
@@ -77,6 +89,17 @@ describe('US-05: Validasi Admin / Moderasi (AdminService)', () => {
         where: { Id: 'rep-mod-01' },
       });
       expect(result).toHaveProperty('Message', 'Laporan berhasil dihapus oleh admin');
+    });
+
+    it('harus menolak penghapusan jika laporan memiliki klaim terkait', async () => {
+      (prisma.report.findUnique as jest.Mock).mockResolvedValue(mockReport);
+      (prisma.claim.findFirst as jest.Mock).mockResolvedValue({ Id: 'clm-01', ReportId: 'rep-mod-01' });
+
+      await expect(
+        adminService.deleteReport(Role.ADMIN, 'adm-001', 'rep-mod-01')
+      ).rejects.toThrow('Laporan tidak dapat dihapus karena sudah memiliki klaim terkait');
+
+      expect(prisma.report.delete).not.toHaveBeenCalled();
     });
 
     it('harus melempar NotFoundError jika laporan yang akan dihapus tidak ditemukan', async () => {
