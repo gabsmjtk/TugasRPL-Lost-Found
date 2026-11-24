@@ -38,12 +38,13 @@ export class SearchService {
       where.Location = { contains: params.location };
     }
 
-    // US-03 AC 1: Pencarian berdasarkan keyword pada judul atau deskripsi
+    // US-03 AC 1: Pencarian berdasarkan keyword pada judul, deskripsi, atau lokasi
     if (params.keyword && params.keyword.trim()) {
       const keyword = params.keyword.trim();
       where.OR = [
         { Title: { contains: keyword } },
         { Description: { contains: keyword } },
+        { Location: { contains: keyword } },
       ];
     }
 
