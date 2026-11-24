@@ -20,9 +20,18 @@ export class SearchService {
 
     const where: any = {};
 
-    // US-03 AC 2: Filter barang berdasarkan status
-    if (params.status) {
-      where.Status = params.status;
+    const publicStatuses: ReportStatus[] = [
+      ReportStatus.OPEN,
+      ReportStatus.MATCHED,
+      ReportStatus.CLAIMED,
+      ReportStatus.RETURNED,
+    ];
+
+    // US-03 AC 2: Filter barang publik hanya untuk status yang diizinkan
+    if (params.status && publicStatuses.includes(params.status as ReportStatus)) {
+      where.Status = params.status as ReportStatus;
+    } else {
+      where.Status = { in: publicStatuses };
     }
 
     // US-03 AC 2: Filter barang berdasarkan category
@@ -38,12 +47,13 @@ export class SearchService {
       where.Location = { contains: params.location };
     }
 
-    // US-03 AC 1: Pencarian berdasarkan keyword pada judul atau deskripsi
+    // US-03 AC 1: Pencarian berdasarkan keyword pada judul, deskripsi, atau lokasi
     if (params.keyword && params.keyword.trim()) {
       const keyword = params.keyword.trim();
       where.OR = [
         { Title: { contains: keyword } },
         { Description: { contains: keyword } },
+        { Location: { contains: keyword } },
       ];
     }
 

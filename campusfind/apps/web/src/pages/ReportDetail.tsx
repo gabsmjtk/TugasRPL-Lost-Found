@@ -36,6 +36,7 @@ const ReportDetail: React.FC = () => {
 
   useEffect(() => {
     if (!id) return;
+    setError('');
     setLoading(true);
     api.get(`/reports/${id}`)
       .then(r => setReport(r.data))

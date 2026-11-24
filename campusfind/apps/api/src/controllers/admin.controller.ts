@@ -144,18 +144,28 @@ export const verifyReport = async (req: Request, res: Response, next: NextFuncti
     if (report.Status !== ReportStatus.PENDING)
       return res.status(400).json({ Message: 'Hanya laporan pending yang dapat diverifikasi' });
 
-    const updated = await prisma.report.update({
-      where: { Id: id },
-      data: {
-        Status: Status as ReportStatus,
-        VerifiedAt: new Date(),
-        VerifiedById: admin.Id,
-        ModeratorNote: ModeratorNote ?? null,
-      },
-      include: { Category: true, Images: { take: 1 }, Reporter: true },
-    });
+    const [updated] = await prisma.$transaction([
+      prisma.report.update({
+        where: { Id: id },
+        data: {
+          Status: Status as ReportStatus,
+          VerifiedAt: new Date(),
+          VerifiedById: admin.Id,
+          ModeratorNote: ModeratorNote ?? null,
+        },
+        include: { Category: true, Images: { take: 1 }, Reporter: true },
+      }),
+      prisma.auditLog.create({
+        data: {
+          ActorId: admin.Id,
+          EntityType: 'Report',
+          EntityId: id,
+          Action: 'VERIFY',
+          Details: JSON.stringify({ Status, ModeratorNote }),
+        },
+      }),
+    ]);
 
-    await logAudit(admin.Id, 'Report', id, 'VERIFY', { Status, ModeratorNote });
     res.json(toReportSummary(updated));
   } catch (err) {
     next(err);

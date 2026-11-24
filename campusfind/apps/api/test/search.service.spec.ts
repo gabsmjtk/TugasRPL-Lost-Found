@@ -53,6 +53,7 @@ describe('US-03: Pencarian dan Filter Barang (SearchService)', () => {
             OR: [
               { Title: { contains: keyword } },
               { Description: { contains: keyword } },
+              { Location: { contains: keyword } },
             ],
           }),
         })
@@ -76,11 +77,33 @@ describe('US-03: Pencarian dan Filter Barang (SearchService)', () => {
             OR: [
               { Title: { contains: keyword } },
               { Description: { contains: keyword } },
+              { Location: { contains: keyword } },
             ],
           }),
         })
       );
       expect(result.Data[0].Description).toContain('perpustakaan');
+    });
+
+    it('harus mengembalikan daftar barang yang lokasinya cocok dengan keyword', async () => {
+      (prisma.report.findMany as jest.Mock).mockResolvedValue([sampleReports[0]]);
+      (prisma.report.count as jest.Mock).mockResolvedValue(1);
+
+      const keyword = 'Lab Komputer';
+      const result = await searchService.searchReports({ keyword });
+
+      expect(prisma.report.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [
+              { Title: { contains: keyword } },
+              { Description: { contains: keyword } },
+              { Location: { contains: keyword } },
+            ],
+          }),
+        })
+      );
+      expect(result.Data[0].Location).toContain('Lab Komputer');
     });
   });
 
@@ -139,6 +162,7 @@ describe('US-03: Pencarian dan Filter Barang (SearchService)', () => {
             OR: [
               { Title: { contains: 'Laptop' } },
               { Description: { contains: 'Laptop' } },
+              { Location: { contains: 'Laptop' } },
             ],
           },
         })

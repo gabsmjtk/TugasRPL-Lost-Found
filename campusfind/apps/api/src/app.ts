@@ -14,24 +14,27 @@ const app = express();
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-const allowedOrigins = [
+export const allowedOrigins = [
   process.env.CLIENT_URL,
   process.env.FRONTEND_URL,
   'http://localhost:5173',
   'http://localhost:3000'
 ].filter(Boolean) as string[];
 
+export const isOriginAllowed = (origin: string | undefined): boolean => {
+  // Izinkan request tanpa origin (seperti curl, mobile app, postman, serverless invoke)
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) return true;
+  if (origin.endsWith('.vercel.app')) return true;
+  return false;
+};
+
 app.use(cors({
   origin: (origin, callback) => {
-    // Izinkan request tanpa origin (seperti curl, mobile app, postman, atau internal serverless invoke)
-    if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+    if (isOriginAllowed(origin)) {
       return callback(null, true);
     }
-    // Jika origin berupa subdomain vercel.app milik deployment sendiri
-    if (origin.endsWith('.vercel.app')) {
-      return callback(null, true);
-    }
-    return callback(null, true); // fallback permissive untuk kenyamanan preview / production deployment
+    return callback(new Error('Origin tidak diizinkan oleh CORS'));
   },
   credentials: true,
 }));

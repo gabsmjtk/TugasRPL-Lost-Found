@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
+import { validateImageFile } from '../utils/fileValidation';
 import { useAuth } from '../contexts/AuthContext';
 import { Upload, AlertTriangle, PackageCheck, Loader2, X, CheckCircle2 } from 'lucide-react';
 
@@ -33,16 +34,30 @@ const CreateReport: React.FC = () => {
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []).slice(0, 3 - images.length);
-    const valid = files.filter(f => {
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) return false;
-      if (f.size > 5 * 1024 * 1024) return false;
-      return true;
-    });
-    setImages(prev => [...prev, ...valid].slice(0, 3));
+    setError('');
+    const selected = Array.from(e.target.files || []);
+    const valid: File[] = [];
+
+    for (const f of selected) {
+      const check = validateImageFile(f);
+      if (!check.valid) {
+        setError(check.error || 'File tidak valid');
+        return;
+      }
+      valid.push(f);
+    }
+
+    const availableSlots = 3 - images.length;
+    const toAdd = valid.slice(0, availableSlots);
+
+    if (valid.length > availableSlots) {
+      setError('Maksimal 3 foto yang diperbolehkan');
+    }
+
+    setImages(prev => [...prev, ...toAdd]);
     setImagePreviews(prev => {
-      const newPreviews = valid.map(f => URL.createObjectURL(f));
-      return [...prev, ...newPreviews].slice(0, 3);
+      const newPreviews = toAdd.map(f => URL.createObjectURL(f));
+      return [...prev, ...newPreviews];
     });
   };
 

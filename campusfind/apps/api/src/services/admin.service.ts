@@ -75,23 +75,33 @@ export class AdminService {
       throw new NotFoundError('Laporan tidak ditemukan');
     }
 
-    await prisma.reportImage.deleteMany({
-      where: { ReportId: reportId },
-    });
+    const existingClaim = await prisma.claim.findFirst({ where: { ReportId: reportId } });
+    if (existingClaim) {
+      throw new BadRequestError('Laporan tidak dapat dihapus karena sudah memiliki klaim terkait');
+    }
 
-    await prisma.report.delete({
-      where: { Id: reportId },
-    });
+    const existingHandover = await prisma.handover.findFirst({ where: { ReportId: reportId } });
+    if (existingHandover) {
+      throw new BadRequestError('Laporan tidak dapat dihapus karena memiliki riwayat serah terima');
+    }
 
-    await prisma.auditLog.create({
-      data: {
-        ActorId: adminId,
-        EntityType: 'Report',
-        EntityId: reportId,
-        Action: 'DELETE_REPORT',
-        Details: JSON.stringify({ ReportId: reportId, Title: report.Title }),
-      },
-    }).catch(() => null);
+    await prisma.$transaction([
+      prisma.reportImage.deleteMany({
+        where: { ReportId: reportId },
+      }),
+      prisma.report.delete({
+        where: { Id: reportId },
+      }),
+      prisma.auditLog.create({
+        data: {
+          ActorId: adminId,
+          EntityType: 'Report',
+          EntityId: reportId,
+          Action: 'DELETE_REPORT',
+          Details: JSON.stringify({ ReportId: reportId, Title: report.Title }),
+        },
+      }),
+    ]);
 
     return { Message: 'Laporan berhasil dihapus oleh admin' };
   }
