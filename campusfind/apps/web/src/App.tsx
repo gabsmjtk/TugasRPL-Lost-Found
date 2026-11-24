@@ -8,6 +8,8 @@ import Register from './pages/Register';
 import Reports from './pages/Reports';
 import ReportDetailPage from './pages/ReportDetail';
 import CreateReport from './pages/CreateReport';
+import EditReport from './pages/EditReport';
+import MyReports from './pages/MyReports';
 import StudentDashboard from './pages/StudentDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 
@@ -48,6 +50,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <CreateReport />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/reports/edit/:id"
+              element={
+                <ProtectedRoute>
+                  <EditReport />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/me/reports"
+              element={
+                <ProtectedRoute>
+                  <MyReports />
                 </ProtectedRoute>
               }
             />
